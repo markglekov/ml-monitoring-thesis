@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+scipy
+sqlalchemy
+psycopg2-binary
+evidently
+river
+mlflow
+prometheus-client
+python-dotenv
+pydantic
+ucimlrepo
+joblib
