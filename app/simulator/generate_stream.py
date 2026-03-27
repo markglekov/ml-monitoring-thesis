@@ -12,6 +12,7 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TRAIN_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
 TEST_DATA_PATH = ROOT / "data" / "processed" / "test.csv"
 
 
@@ -25,13 +26,20 @@ def to_native(value: Any) -> Any:
     return value
 
 
-def load_rows() -> pd.DataFrame:
+def load_rows(source_split: str) -> pd.DataFrame:
     """Load processed test rows that will be replayed as inference requests."""
 
-    if not TEST_DATA_PATH.exists():
-        raise FileNotFoundError(f"Test dataset not found: {TEST_DATA_PATH}")
+    if source_split == "train":
+        data_path = TRAIN_DATA_PATH
+    elif source_split == "test":
+        data_path = TEST_DATA_PATH
+    else:
+        raise ValueError(f"Unsupported source split: {source_split}")
 
-    df = pd.read_csv(TEST_DATA_PATH)
+    if not data_path.exists():
+        raise FileNotFoundError(f"Dataset not found: {data_path}")
+
+    df = pd.read_csv(data_path)
     if "target" in df.columns:
         df = df.drop(columns=["target"])
     return df
@@ -174,6 +182,7 @@ def post_one(api_url: str, features: dict[str, Any], segment_key: str, timeout: 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate inference stream for monitoring")
     parser.add_argument("--api-url", type=str, default="http://localhost:8000")
+    parser.add_argument("--source-split", type=str, choices=["train", "test"], default="test")
     parser.add_argument("--rows", type=int, default=300)
     parser.add_argument("--scenario", type=str, choices=["none", "mild", "severe"], default="none")
     parser.add_argument("--segment-key", type=str, default=None)
@@ -185,7 +194,7 @@ def main() -> None:
     if args.rows <= 0:
         parser.error("--rows must be greater than 0")
 
-    base_df = load_rows()
+    base_df = load_rows(source_split=args.source_split)
     sample_df = repeat_to_size(base_df, rows=args.rows, seed=args.seed)
     stream_df = apply_scenario(sample_df, scenario=args.scenario, seed=args.seed)
 
@@ -194,7 +203,10 @@ def main() -> None:
     ok_count = 0
     fail_count = 0
 
-    print(f"Generating stream: rows={args.rows}, scenario={args.scenario}, segment_key={segment_key}")
+    print(
+        f"Generating stream: rows={args.rows}, source_split={args.source_split}, "
+        f"scenario={args.scenario}, segment_key={segment_key}"
+    )
 
     for idx, row in stream_df.iterrows():
         success, message = post_one(

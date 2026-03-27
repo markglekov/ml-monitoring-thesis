@@ -9,7 +9,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from scipy.stats import chisquare, ks_2samp
+from scipy.stats import chi2_contingency, ks_2samp
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -264,17 +264,13 @@ def analyze_categorical_feature(feature_name: str, reference: pd.Series, current
     ref_counts = ref_counts.reindex(all_values, fill_value=0)
     cur_counts = cur_counts.reindex(all_values, fill_value=0)
 
-    expected = ref_counts / ref_counts.sum() * cur_counts.sum()
-    mask = expected > 0
+    contingency = np.vstack([ref_counts.values, cur_counts.values])
 
-    if mask.sum() <= 1:
+    if contingency.shape[1] <= 1:
         chi2_stat = 0.0
         chi2_pvalue = 1.0
     else:
-        chi2_stat, chi2_pvalue = chisquare(
-            f_obs=cur_counts[mask].values,
-            f_exp=expected[mask].values,
-        )
+        chi2_stat, chi2_pvalue, _, _ = chi2_contingency(contingency)
 
     psi_value = calculate_categorical_psi(ref, cur)
     drift_detected = bool((chi2_pvalue < 0.05) or ((psi_value is not None) and (psi_value >= 0.20)))
