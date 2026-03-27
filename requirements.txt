@@ -12,5 +12,6 @@ mlflow
 prometheus-client
 python-dotenv
 pydantic
+requests
 ucimlrepo
 joblib
