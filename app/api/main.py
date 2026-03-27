@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -57,6 +58,21 @@ def to_native(value: Any) -> Any:
         except Exception:
             return value
     return value
+
+
+def normalize_feature_value(value: Any) -> Any:
+    """Convert JSON-null-like values back into pandas-compatible missing values."""
+
+    if value is None:
+        return np.nan
+    return value
+
+
+def build_inference_frame(features: dict[str, Any], feature_columns: list[str]) -> pd.DataFrame:
+    """Build a single-row dataframe with normalized missing values for model inference."""
+
+    row = {column: normalize_feature_value(features[column]) for column in feature_columns}
+    return pd.DataFrame([row])
 
 
 def get_model(app: FastAPI) -> Any:
@@ -252,7 +268,7 @@ def predict(payload: PredictRequest) -> PredictResponse:
     request_id = payload.request_id or str(uuid.uuid4())
     started_at = time.perf_counter()
     row = {column: payload.features[column] for column in feature_columns}
-    X = pd.DataFrame([row])
+    X = build_inference_frame(payload.features, feature_columns)
 
     try:
         score = float(model.predict_proba(X)[:, 1][0])
