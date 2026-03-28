@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import math
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +16,12 @@ import requests
 ROOT = Path(__file__).resolve().parents[2]
 TRAIN_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
 TEST_DATA_PATH = ROOT / "data" / "processed" / "test.csv"
+MANIFEST_DIR = ROOT / "artifacts" / "reports" / "manifests"
+MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def to_native(value: Any) -> Any:
-    """Convert pandas/numpy scalar values into JSON-serializable Python objects."""
+    """Convert pandas and numpy scalars into JSON-serializable Python values."""
 
     if pd.isna(value):
         return None
@@ -27,7 +31,7 @@ def to_native(value: Any) -> Any:
 
 
 def load_rows(source_split: str) -> pd.DataFrame:
-    """Load processed test rows that will be replayed as inference requests."""
+    """Load a processed dataset that still contains the original target column."""
 
     if source_split == "train":
         data_path = TRAIN_DATA_PATH
@@ -40,13 +44,13 @@ def load_rows(source_split: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Dataset not found: {data_path}")
 
     df = pd.read_csv(data_path)
-    if "target" in df.columns:
-        df = df.drop(columns=["target"])
+    if "target" not in df.columns:
+        raise ValueError(f"Expected target column in dataset: {data_path}")
     return df
 
 
 def repeat_to_size(df: pd.DataFrame, rows: int, seed: int) -> pd.DataFrame:
-    """Sample or repeat the dataset until the requested stream length is reached."""
+    """Sample or repeat rows until the requested stream size is reached."""
 
     if rows <= 0:
         raise ValueError("rows must be greater than 0")
@@ -58,7 +62,7 @@ def repeat_to_size(df: pd.DataFrame, rows: int, seed: int) -> pd.DataFrame:
         return df.iloc[sampled_idx].reset_index(drop=True)
 
     repeats = math.ceil(rows / len(df))
-    parts = []
+    parts: list[pd.DataFrame] = []
     for _ in range(repeats):
         sampled_idx = rng.choice(len(df), size=len(df), replace=False)
         parts.append(df.iloc[sampled_idx].reset_index(drop=True))
@@ -67,7 +71,7 @@ def repeat_to_size(df: pd.DataFrame, rows: int, seed: int) -> pd.DataFrame:
 
 
 def apply_mild_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
-    """Apply a moderate feature shift that should be visible but not extreme."""
+    """Apply a moderate shift to a subset of numeric and categorical features."""
 
     rng = np.random.default_rng(seed)
     out = df.copy()
@@ -97,7 +101,7 @@ def apply_mild_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def apply_severe_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
-    """Apply a strong feature shift for obvious drift scenarios."""
+    """Apply a strong shift for clearly degraded distribution scenarios."""
 
     rng = np.random.default_rng(seed)
     out = df.copy()
@@ -145,21 +149,37 @@ def apply_severe_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def apply_scenario(df: pd.DataFrame, scenario: str, seed: int) -> pd.DataFrame:
-    """Apply the requested drift scenario to the sampled dataframe."""
+    """Apply the selected scenario while preserving the original target column."""
+
+    out = df.copy()
+    feature_columns = [column for column in out.columns if column != "target"]
+    features_df = out[feature_columns].copy()
 
     if scenario == "none":
-        return df.copy()
-    if scenario == "mild":
-        return apply_mild_drift(df, seed)
-    if scenario == "severe":
-        return apply_severe_drift(df, seed)
-    raise ValueError(f"Unsupported scenario: {scenario}")
+        shifted_df = features_df
+    elif scenario == "mild":
+        shifted_df = apply_mild_drift(features_df, seed)
+    elif scenario == "severe":
+        shifted_df = apply_severe_drift(features_df, seed)
+    else:
+        raise ValueError(f"Unsupported scenario: {scenario}")
+
+    result = shifted_df.copy()
+    result["target"] = out["target"].values
+    return result
 
 
-def post_one(api_url: str, features: dict[str, Any], segment_key: str, timeout: float) -> tuple[bool, str]:
-    """Send a single inference request to the API."""
+def post_one(
+    api_url: str,
+    features: dict[str, Any],
+    request_id: str,
+    segment_key: str,
+    timeout: float,
+) -> tuple[bool, str]:
+    """Send one request to the inference API with a stable request identifier."""
 
     payload = {
+        "request_id": request_id,
         "features": {key: to_native(value) for key, value in features.items()},
         "segment_key": segment_key,
     }
@@ -179,6 +199,14 @@ def post_one(api_url: str, features: dict[str, Any], segment_key: str, timeout: 
     return True, response.text
 
 
+def build_manifest_path(segment_key: str, scenario: str) -> Path:
+    """Build a default manifest path for one generated stream."""
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_segment_key = segment_key.replace("/", "_")
+    return MANIFEST_DIR / f"stream_{safe_segment_key}_{scenario}_{ts}.csv"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate inference stream for monitoring")
     parser.add_argument("--api-url", type=str, default="http://localhost:8000")
@@ -189,6 +217,7 @@ def main() -> None:
     parser.add_argument("--sleep-sec", type=float, default=0.03)
     parser.add_argument("--timeout-sec", type=float, default=10.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--manifest-path", type=str, default=None)
     args = parser.parse_args()
 
     if args.rows <= 0:
@@ -199,9 +228,12 @@ def main() -> None:
     stream_df = apply_scenario(sample_df, scenario=args.scenario, seed=args.seed)
 
     segment_key = args.segment_key or args.scenario
+    manifest_path = Path(args.manifest_path) if args.manifest_path else build_manifest_path(segment_key, args.scenario)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     ok_count = 0
     fail_count = 0
+    manifest_records: list[dict[str, Any]] = []
 
     print(
         f"Generating stream: rows={args.rows}, source_split={args.source_split}, "
@@ -209,15 +241,30 @@ def main() -> None:
     )
 
     for idx, row in stream_df.iterrows():
+        request_id = str(uuid.uuid4())
+        row_dict = row.to_dict()
+        target = int(row_dict.pop("target"))
+
         success, message = post_one(
             api_url=args.api_url,
-            features=row.to_dict(),
+            features=row_dict,
+            request_id=request_id,
             segment_key=segment_key,
             timeout=args.timeout_sec,
         )
 
         if success:
             ok_count += 1
+            manifest_records.append(
+                {
+                    "request_id": request_id,
+                    "segment_key": segment_key,
+                    "scenario": args.scenario,
+                    "source_split": args.source_split,
+                    "original_target": target,
+                    "sent_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         else:
             fail_count += 1
             print(f"[FAIL] row={idx}: {message}")
@@ -228,8 +275,11 @@ def main() -> None:
         if args.sleep_sec > 0:
             time.sleep(args.sleep_sec)
 
+    pd.DataFrame(manifest_records).to_csv(manifest_path, index=False)
+
     print("Done.")
     print(f"Sent={len(stream_df)}, ok={ok_count}, fail={fail_count}")
+    print(f"Manifest saved to: {manifest_path}")
 
 
 if __name__ == "__main__":
