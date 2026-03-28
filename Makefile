@@ -3,7 +3,7 @@
 UV := UV_CACHE_DIR=.uv-cache uv
 PRE_COMMIT_HOME := .pre-commit-cache
 
-.PHONY: help lock sync sync-prod format format-check lint lint-fix typecheck test test-unit test-integration test-all check hooks-install hooks-run ci docker-up docker-up-mailpit docker-down
+.PHONY: help lock sync sync-prod format format-check lint lint-fix typecheck test test-unit test-integration test-all check hooks-install hooks-run ci run-api db-shell docker-up docker-up-mailpit docker-down
 
 help:
 	@printf "%s\n" \
@@ -24,6 +24,8 @@ help:
 		"  hooks-install     Install pre-commit and pre-push hooks" \
 		"  hooks-run         Run all pre-commit hooks against the whole repo" \
 		"  ci                Local CI-equivalent target" \
+		"  run-api           Run the FastAPI app locally with uvicorn" \
+		"  db-shell          Open psql inside the PostgreSQL container" \
 		"  docker-up         Start the full Docker stack" \
 		"  docker-up-mailpit Start the stack with Mailpit for local email testing" \
 		"  docker-down       Stop the Docker stack"
@@ -75,6 +77,12 @@ hooks-run:
 	PRE_COMMIT_HOME=$(PRE_COMMIT_HOME) $(UV) run pre-commit run --all-files
 
 ci: check
+
+run-api:
+	$(UV) run uvicorn app.api.main:app --host 0.0.0.0 --port $${API_PORT:-8000} --reload
+
+db-shell:
+	docker compose exec postgres psql -U "$${POSTGRES_USER:-mlops}" -d "$${POSTGRES_DB:-ml_monitoring}"
 
 docker-up:
 	docker compose up -d --build

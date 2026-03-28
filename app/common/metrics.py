@@ -98,6 +98,24 @@ QUALITY_LAST_RUN_LABELED_ROWS = Gauge(
     ["model_version"],
 )
 
+QUALITY_LAST_METRIC_VALUE = Gauge(
+    "ml_monitoring_quality_last_metric_value",
+    "Metric values from the latest completed quality monitoring run.",
+    ["model_version", "metric_name"],
+)
+
+QUALITY_LAST_METRIC_BASELINE = Gauge(
+    "ml_monitoring_quality_last_metric_baseline",
+    "Baseline metric values for the latest completed quality monitoring run.",
+    ["model_version", "metric_name"],
+)
+
+QUALITY_LAST_METRIC_DELTA = Gauge(
+    "ml_monitoring_quality_last_metric_delta",
+    "Metric deltas versus baseline for the latest completed quality run.",
+    ["model_version", "metric_name"],
+)
+
 KNOWN_RUN_STATUSES: tuple[
     Literal["running"],
     Literal["completed"],
@@ -188,6 +206,9 @@ def _clear_monitoring_gauges(model_version: str) -> None:
     QUALITY_LAST_RUN_AGE_SECONDS.clear()
     QUALITY_LAST_RUN_DEGRADED_METRICS.clear()
     QUALITY_LAST_RUN_LABELED_ROWS.clear()
+    QUALITY_LAST_METRIC_VALUE.clear()
+    QUALITY_LAST_METRIC_BASELINE.clear()
+    QUALITY_LAST_METRIC_DELTA.clear()
 
     _refresh_status_gauge(
         DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown"
@@ -236,9 +257,38 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
         """
     )
 
+    quality_metrics_query = text(
+        """
+        WITH latest_completed_quality_run AS (
+            SELECT id
+            FROM quality_runs
+            WHERE
+                model_version = :model_version
+                AND status = 'completed'
+            ORDER BY ts_started DESC, id DESC
+            LIMIT 1
+        )
+        SELECT
+            metric_name,
+            metric_value,
+            baseline_value,
+            delta_value
+        FROM quality_metrics
+        WHERE run_id = (SELECT id FROM latest_completed_quality_run)
+        """
+    )
+
     with engine.connect() as connection:
         drift_row = connection.execute(drift_query).mappings().first()
         quality_row = connection.execute(quality_query).mappings().first()
+        quality_metric_rows = (
+            connection.execute(
+                quality_metrics_query,
+                {"model_version": model_version},
+            )
+            .mappings()
+            .all()
+        )
 
     DRIFT_LAST_RUN_AGE_SECONDS.clear()
     DRIFT_LAST_RUN_DRIFTED_FEATURES.clear()
@@ -246,6 +296,9 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
     QUALITY_LAST_RUN_AGE_SECONDS.clear()
     QUALITY_LAST_RUN_DEGRADED_METRICS.clear()
     QUALITY_LAST_RUN_LABELED_ROWS.clear()
+    QUALITY_LAST_METRIC_VALUE.clear()
+    QUALITY_LAST_METRIC_BASELINE.clear()
+    QUALITY_LAST_METRIC_DELTA.clear()
 
     if drift_row is None and quality_row is None:
         _clear_monitoring_gauges(model_version=model_version)
@@ -310,6 +363,27 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
         QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(
             0.0
         )
+
+    for quality_metric_row in quality_metric_rows:
+        metric_name = str(quality_metric_row["metric_name"])
+        metric_value = quality_metric_row["metric_value"]
+        baseline_value = quality_metric_row["baseline_value"]
+        delta_value = quality_metric_row["delta_value"]
+
+        if metric_value is not None:
+            QUALITY_LAST_METRIC_VALUE.labels(
+                model_version=model_version, metric_name=metric_name
+            ).set(float(metric_value))
+
+        if baseline_value is not None:
+            QUALITY_LAST_METRIC_BASELINE.labels(
+                model_version=model_version, metric_name=metric_name
+            ).set(float(baseline_value))
+
+        if delta_value is not None:
+            QUALITY_LAST_METRIC_DELTA.labels(
+                model_version=model_version, metric_name=metric_name
+            ).set(float(delta_value))
 
 
 def render_metrics() -> bytes:

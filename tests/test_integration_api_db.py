@@ -237,6 +237,54 @@ def test_refresh_monitoring_gauges_reads_latest_run_rows(
             ),
             {"model_version": main.settings.model_version},
         )
+        quality_run_id = connection.execute(
+            text(
+                """
+                SELECT id
+                FROM quality_runs
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+        ).scalar_one()
+        connection.execute(
+            text(
+                """
+                INSERT INTO quality_metrics (
+                    run_id,
+                    segment_key,
+                    metric_name,
+                    metric_value,
+                    baseline_value,
+                    delta_value,
+                    degradation_detected,
+                    details_json
+                )
+                VALUES
+                    (
+                        :run_id,
+                        NULL,
+                        'roc_auc',
+                        0.671,
+                        0.701,
+                        -0.03,
+                        true,
+                        CAST(:details_json AS JSONB)
+                    ),
+                    (
+                        :run_id,
+                        NULL,
+                        'f1',
+                        0.53,
+                        0.58,
+                        -0.05,
+                        true,
+                        CAST(:details_json AS JSONB)
+                    )
+                """
+            ),
+            {"run_id": quality_run_id, "details_json": '{"ok": true}'},
+        )
 
     metrics.refresh_monitoring_gauges(
         postgres_engine, model_version=main.settings.model_version
@@ -258,4 +306,14 @@ def test_refresh_monitoring_gauges_reads_latest_run_rows(
     assert (
         "ml_monitoring_quality_last_run_labeled_rows"
         '{model_version="bank_marketing_v1"} 42.0' in exposition
+    )
+    assert (
+        "ml_monitoring_quality_last_metric_value"
+        '{metric_name="roc_auc",model_version="bank_marketing_v1"} 0.671'
+        in exposition
+    )
+    assert (
+        "ml_monitoring_quality_last_metric_value"
+        '{metric_name="f1",model_version="bank_marketing_v1"} 0.53'
+        in exposition
     )

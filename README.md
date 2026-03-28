@@ -36,6 +36,7 @@ app/
 monitoring/       Prometheus, Grafana, Alertmanager configuration
 sql/              Database schema bootstrap SQL
 tests/            Unit and integration tests
+docs/             Reproducible experiment runbooks and reports
 ```
 
 ## Quick Start
@@ -57,6 +58,12 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.train.train
 
 ```bash
 make docker-up
+```
+
+To run only the API locally outside Docker:
+
+```bash
+make run-api
 ```
 
 If port `5432` is already busy on your machine, override the host port:
@@ -114,6 +121,73 @@ Run the same quality gate locally that CI executes:
 make ci
 ```
 
+Inspect PostgreSQL directly:
+
+```bash
+make db-shell
+```
+
+Useful SQL inside `psql`:
+
+```sql
+SELECT COUNT(*) FROM inference_log;
+SELECT COUNT(*) FROM ground_truth;
+SELECT id, status, overall_drift, drifted_features_count
+FROM monitoring_runs
+ORDER BY id DESC
+LIMIT 5;
+SELECT id, status, degraded_metrics_count, labeled_rows
+FROM quality_runs
+ORDER BY id DESC
+LIMIT 5;
+```
+
+## Quick Demo Scenario
+
+1. Start the full stack:
+
+```bash
+make docker-up
+```
+
+2. Generate a baseline-like inference stream:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python -m app.simulator.generate_stream \
+  --source-split train \
+  --rows 300 \
+  --scenario none \
+  --segment-key demo_none \
+  --seed 42
+```
+
+3. Run drift monitoring on the same segment:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.drift_job \
+  --window-size 300 \
+  --segment-key demo_none
+```
+
+4. Backfill delayed labels and run quality monitoring:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.backfill_labels \
+  --label-policy perfect
+
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
+  --window-size 300 \
+  --segment-key demo_none
+```
+
+5. Inspect the result:
+
+- Overview UI: `http://localhost:8000/overview`
+- Overview JSON: `http://localhost:8000/monitoring/overview`
+- Grafana: `http://localhost:3000`
+- Prometheus: `http://localhost:9090`
+- Alertmanager: `http://localhost:9093`
+
 ## Monitoring Workflow
 
 Generate a stream of inference requests:
@@ -136,6 +210,9 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job --window-size
 ```
 
 The scheduler service can run both jobs continuously through Docker Compose.
+
+For reproducible experiment scenarios and expected outcomes, see
+[`docs/experiments.md`](docs/experiments.md).
 
 ## Email Alerting
 
