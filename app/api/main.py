@@ -75,6 +75,37 @@ class GroundTruthLabelsBatchResponse(BaseModel):
     status: str
 
 
+class DriftRunResponse(BaseModel):
+    """One persisted drift-monitoring run returned by the API."""
+
+    id: int
+    ts_started: datetime
+    ts_finished: datetime | None
+    model_version: str
+    window_size: int
+    segment_key: str | None
+    status: str
+    drifted_features_count: int
+    total_features_count: int
+    overall_drift: bool
+    summary: dict[str, Any] | None
+
+
+class QualityRunResponse(BaseModel):
+    """One persisted quality-monitoring run returned by the API."""
+
+    id: int
+    ts_started: datetime
+    ts_finished: datetime | None
+    model_version: str
+    window_size: int
+    segment_key: str | None
+    status: str
+    labeled_rows: int
+    degraded_metrics_count: int
+    summary: dict[str, Any] | None
+
+
 def to_native(value: Any) -> Any:
     """Convert pandas and numpy objects into JSON-serializable Python values."""
 
@@ -117,6 +148,19 @@ def normalize_label_ts(label_ts: datetime | None) -> datetime:
     return label_ts.astimezone(timezone.utc)
 
 
+def parse_json_object(value: Any) -> dict[str, Any] | None:
+    """Normalize a JSON/JSONB field into a Python dict when possible."""
+
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    return {"value": to_native(value)}
+
+
 def get_model(app: FastAPI) -> Any:
     """Return the loaded model or raise a 503 if the service is not ready."""
 
@@ -148,6 +192,13 @@ def get_threshold(app: FastAPI) -> float:
     """Return the active decision threshold loaded at startup."""
 
     return float(getattr(app.state, "threshold", 0.5))
+
+
+def validate_limit(limit: int) -> None:
+    """Validate common pagination limit for list endpoints."""
+
+    if limit <= 0 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
 
 
 def find_missing_request_ids(engine: Engine, request_ids: list[str]) -> list[str]:
@@ -284,6 +335,139 @@ def upsert_ground_truth_labels(engine: Engine, labels: list[GroundTruthLabelRequ
         result = connection.execute(query, payloads)
 
     return max(int(result.rowcount), 0) if result.rowcount is not None else 0
+
+
+def list_drift_runs(engine: Engine, limit: int, segment_key: str | None = None) -> list[DriftRunResponse]:
+    """List recent drift-monitoring runs with optional segment filtering."""
+
+    if segment_key:
+        query = text(
+            """
+            SELECT
+                id,
+                ts_started,
+                ts_finished,
+                model_version,
+                window_size,
+                segment_key,
+                status,
+                drifted_features_count,
+                total_features_count,
+                overall_drift,
+                summary_json
+            FROM monitoring_runs
+            WHERE segment_key = :segment_key
+            ORDER BY ts_started DESC, id DESC
+            LIMIT :limit
+            """
+        )
+        params = {"segment_key": segment_key, "limit": limit}
+    else:
+        query = text(
+            """
+            SELECT
+                id,
+                ts_started,
+                ts_finished,
+                model_version,
+                window_size,
+                segment_key,
+                status,
+                drifted_features_count,
+                total_features_count,
+                overall_drift,
+                summary_json
+            FROM monitoring_runs
+            ORDER BY ts_started DESC, id DESC
+            LIMIT :limit
+            """
+        )
+        params = {"limit": limit}
+
+    with engine.connect() as connection:
+        rows = connection.execute(query, params).mappings().all()
+
+    return [
+        DriftRunResponse(
+            id=int(row["id"]),
+            ts_started=row["ts_started"],
+            ts_finished=row["ts_finished"],
+            model_version=str(row["model_version"]),
+            window_size=int(row["window_size"]),
+            segment_key=row["segment_key"],
+            status=str(row["status"]),
+            drifted_features_count=int(row["drifted_features_count"] or 0),
+            total_features_count=int(row["total_features_count"] or 0),
+            overall_drift=bool(row["overall_drift"]),
+            summary=parse_json_object(row["summary_json"]),
+        )
+        for row in rows
+    ]
+
+
+def list_quality_runs(engine: Engine, limit: int, segment_key: str | None = None) -> list[QualityRunResponse]:
+    """List recent quality-monitoring runs with optional segment filtering."""
+
+    if segment_key:
+        query = text(
+            """
+            SELECT
+                id,
+                ts_started,
+                ts_finished,
+                model_version,
+                window_size,
+                segment_key,
+                status,
+                labeled_rows,
+                degraded_metrics_count,
+                summary_json
+            FROM quality_runs
+            WHERE segment_key = :segment_key
+            ORDER BY ts_started DESC, id DESC
+            LIMIT :limit
+            """
+        )
+        params = {"segment_key": segment_key, "limit": limit}
+    else:
+        query = text(
+            """
+            SELECT
+                id,
+                ts_started,
+                ts_finished,
+                model_version,
+                window_size,
+                segment_key,
+                status,
+                labeled_rows,
+                degraded_metrics_count,
+                summary_json
+            FROM quality_runs
+            ORDER BY ts_started DESC, id DESC
+            LIMIT :limit
+            """
+        )
+        params = {"limit": limit}
+
+    with engine.connect() as connection:
+        rows = connection.execute(query, params).mappings().all()
+
+    return [
+        QualityRunResponse(
+            id=int(row["id"]),
+            ts_started=row["ts_started"],
+            ts_finished=row["ts_finished"],
+            model_version=str(row["model_version"]),
+            window_size=int(row["window_size"]),
+            segment_key=row["segment_key"],
+            status=str(row["status"]),
+            labeled_rows=int(row["labeled_rows"] or 0),
+            degraded_metrics_count=int(row["degraded_metrics_count"] or 0),
+            summary=parse_json_object(row["summary_json"]),
+        )
+        for row in rows
+    ]
 
 
 @asynccontextmanager
@@ -485,3 +669,31 @@ def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLa
         upserted_count=upserted_count,
         status="upserted",
     )
+
+
+@app.get("/monitoring/drift/runs", response_model=list[DriftRunResponse])
+def get_drift_runs(limit: int = 20, segment_key: str | None = None) -> list[DriftRunResponse]:
+    """Return recent drift-monitoring runs for operators and dashboards."""
+
+    validate_limit(limit)
+    engine = get_engine(app)
+
+    try:
+        return list_drift_runs(engine=engine, limit=limit, segment_key=segment_key)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to fetch drift runs.")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch drift runs: {exc}") from exc
+
+
+@app.get("/monitoring/quality/runs", response_model=list[QualityRunResponse])
+def get_quality_runs(limit: int = 20, segment_key: str | None = None) -> list[QualityRunResponse]:
+    """Return recent quality-monitoring runs for operators and dashboards."""
+
+    validate_limit(limit)
+    engine = get_engine(app)
+
+    try:
+        return list_quality_runs(engine=engine, limit=limit, segment_key=segment_key)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to fetch quality runs.")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch quality runs: {exc}") from exc
