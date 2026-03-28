@@ -59,5 +59,48 @@ services:
       start_period: 20s
     command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ml-monitoring-api:latest
+    container_name: ml-monitoring-scheduler
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      MODEL_PATH: ${MODEL_PATH}
+      BASELINE_PATH: ${BASELINE_PATH}
+      MODEL_VERSION: ${MODEL_VERSION}
+    volumes:
+      - ./:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "python",
+        "-m",
+        "app.monitoring.scheduler",
+        "--drift-interval-sec",
+        "${SCHEDULER_DRIFT_INTERVAL_SEC:-300}",
+        "--quality-interval-sec",
+        "${SCHEDULER_QUALITY_INTERVAL_SEC:-300}",
+        "--drift-window-size",
+        "${SCHEDULER_DRIFT_WINDOW_SIZE:-300}",
+        "--quality-window-size",
+        "${SCHEDULER_QUALITY_WINDOW_SIZE:-300}",
+        "--drift-min-rows",
+        "${SCHEDULER_DRIFT_MIN_ROWS:-50}",
+        "--quality-min-rows",
+        "${SCHEDULER_QUALITY_MIN_ROWS:-50}",
+        "--quality-baseline-source",
+        "${SCHEDULER_QUALITY_BASELINE_SOURCE:-test}",
+      ]
+
 volumes:
   postgres_data:

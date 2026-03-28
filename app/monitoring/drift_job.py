@@ -417,28 +417,30 @@ def insert_drift_metrics(engine: Engine, run_id: int, results: list[dict[str, An
         connection.execute(query, payloads)
 
 
-def main() -> None:
-    """Execute one batch drift-monitoring run over the latest inference window."""
-
-    setup_logging()
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser for the drift-monitoring job."""
 
     parser = argparse.ArgumentParser(description="Drift monitoring job")
     parser.add_argument("--window-size", type=int, default=300)
     parser.add_argument("--segment-key", type=str, default=None)
     parser.add_argument("--min-rows", type=int, default=50)
-    args = parser.parse_args()
+    return parser
 
-    if args.window_size <= 0:
-        parser.error("--window-size must be greater than 0")
-    if args.min_rows <= 0:
-        parser.error("--min-rows must be greater than 0")
+
+def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = None) -> dict[str, Any]:
+    """Execute one batch drift-monitoring run and return a compact result payload."""
+
+    if window_size <= 0:
+        raise ValueError("window_size must be greater than 0")
+    if min_rows <= 0:
+        raise ValueError("min_rows must be greater than 0")
 
     logger.info(
         "Starting drift job. model_version=%s window_size=%s segment_key=%s min_rows=%s",
         settings.model_version,
-        args.window_size,
-        args.segment_key,
-        args.min_rows,
+        window_size,
+        segment_key,
+        min_rows,
     )
 
     baseline_profile = load_baseline_profile()
@@ -446,17 +448,17 @@ def main() -> None:
     numeric_features = set(baseline_profile.get("numeric_features", []))
     categorical_features = set(baseline_profile.get("categorical_features", []))
     engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
-    run_id = insert_monitoring_run(engine, window_size=args.window_size, segment_key=args.segment_key)
+    run_id = insert_monitoring_run(engine, window_size=window_size, segment_key=segment_key)
 
     try:
         reference_df = ensure_columns(load_reference_data(), feature_columns)
-        current_df = load_current_window(engine, window_size=args.window_size, segment_key=args.segment_key)
+        current_df = load_current_window(engine, window_size=window_size, segment_key=segment_key)
 
-        if current_df.empty or len(current_df) < args.min_rows:
+        if current_df.empty or len(current_df) < min_rows:
             summary = {
                 "status": "skipped_insufficient_data",
                 "current_rows": int(len(current_df)),
-                "required_min_rows": int(args.min_rows),
+                "required_min_rows": int(min_rows),
             }
             finalize_monitoring_run(
                 engine=engine,
@@ -468,8 +470,7 @@ def main() -> None:
                 summary=summary,
             )
             logger.info("Drift job skipped due to insufficient data: %s", summary)
-            print(json.dumps(summary, ensure_ascii=False, indent=2))
-            return
+            return {"run_id": run_id, "status": "skipped_insufficient_data", "summary": summary}
 
         current_features_df = ensure_columns(current_df, feature_columns)
 
@@ -533,7 +534,7 @@ def main() -> None:
             ],
             "reference_positive_rate_pred": positive_rate_reference,
             "current_positive_rate_pred": positive_rate_current,
-            "segment_key": args.segment_key,
+            "segment_key": segment_key,
         }
 
         finalize_monitoring_run(
@@ -553,8 +554,14 @@ def main() -> None:
             total_features_count,
             overall_drift,
         )
-        print("Drift job completed.")
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "summary": summary,
+            "overall_drift": overall_drift,
+            "drifted_features_count": drifted_features_count,
+            "total_features_count": total_features_count,
+        }
 
     except Exception as exc:
         logger.exception("Drift job failed. run_id=%s", run_id)
@@ -570,6 +577,30 @@ def main() -> None:
         raise
     finally:
         engine.dispose()
+
+
+def main() -> None:
+    """Execute one batch drift-monitoring run over the latest inference window."""
+
+    setup_logging()
+
+    parser = build_argument_parser()
+    args = parser.parse_args()
+
+    if args.window_size <= 0:
+        parser.error("--window-size must be greater than 0")
+    if args.min_rows <= 0:
+        parser.error("--min-rows must be greater than 0")
+
+    result = run_drift_job(
+        window_size=args.window_size,
+        min_rows=args.min_rows,
+        segment_key=args.segment_key,
+    )
+
+    if result["status"] == "completed":
+        print("Drift job completed.")
+    print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

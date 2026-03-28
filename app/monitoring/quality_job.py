@@ -339,46 +339,53 @@ def build_metric_rows(
     return rows
 
 
-def main() -> None:
-    """Execute one batch quality monitoring run over the latest labeled window."""
-
-    setup_logging()
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser for the quality-monitoring job."""
 
     parser = argparse.ArgumentParser(description="Quality monitoring job")
     parser.add_argument("--window-size", type=int, default=300)
     parser.add_argument("--segment-key", type=str, default=None)
     parser.add_argument("--min-rows", type=int, default=50)
     parser.add_argument("--baseline-source", type=str, choices=["test", "validation"], default="test")
-    args = parser.parse_args()
+    return parser
 
-    if args.window_size <= 0:
-        parser.error("--window-size must be greater than 0")
-    if args.min_rows <= 0:
-        parser.error("--min-rows must be greater than 0")
+
+def run_quality_job(
+    window_size: int,
+    min_rows: int,
+    baseline_source: str = "test",
+    segment_key: str | None = None,
+) -> dict[str, Any]:
+    """Execute one batch quality-monitoring run and return a compact result payload."""
+
+    if window_size <= 0:
+        raise ValueError("window_size must be greater than 0")
+    if min_rows <= 0:
+        raise ValueError("min_rows must be greater than 0")
 
     logger.info(
         "Starting quality job. model_version=%s window_size=%s segment_key=%s baseline_source=%s",
         settings.model_version,
-        args.window_size,
-        args.segment_key,
-        args.baseline_source,
+        window_size,
+        segment_key,
+        baseline_source,
     )
 
     baseline_profile = load_baseline_profile()
-    baseline_metrics = get_baseline_metrics(baseline_profile, baseline_source=args.baseline_source)
+    baseline_metrics = get_baseline_metrics(baseline_profile, baseline_source=baseline_source)
     engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
-    run_id = insert_quality_run(engine, window_size=args.window_size, segment_key=args.segment_key)
+    run_id = insert_quality_run(engine, window_size=window_size, segment_key=segment_key)
 
     try:
-        labeled_window_df = load_labeled_window(engine, window_size=args.window_size, segment_key=args.segment_key)
+        labeled_window_df = load_labeled_window(engine, window_size=window_size, segment_key=segment_key)
 
-        if labeled_window_df.empty or len(labeled_window_df) < args.min_rows:
+        if labeled_window_df.empty or len(labeled_window_df) < min_rows:
             summary = {
                 "status": "skipped_insufficient_data",
                 "labeled_rows": int(len(labeled_window_df)),
-                "required_min_rows": int(args.min_rows),
-                "segment_key": args.segment_key,
-                "baseline_source": args.baseline_source,
+                "required_min_rows": int(min_rows),
+                "segment_key": segment_key,
+                "baseline_source": baseline_source,
             }
             finalize_quality_run(
                 engine=engine,
@@ -389,24 +396,23 @@ def main() -> None:
                 summary=summary,
             )
             logger.info("Quality job skipped due to insufficient labeled rows: %s", summary)
-            print(json.dumps(summary, ensure_ascii=False, indent=2))
-            return
+            return {"run_id": run_id, "status": "skipped_insufficient_data", "summary": summary}
 
         current_metrics = compute_quality_metrics(labeled_window_df)
         metrics_rows = build_metric_rows(
             current_metrics=current_metrics,
             baseline_metrics=baseline_metrics,
             labeled_rows=int(len(labeled_window_df)),
-            baseline_source=args.baseline_source,
+            baseline_source=baseline_source,
         )
-        insert_quality_metrics(engine, run_id=run_id, segment_key=args.segment_key, metrics_rows=metrics_rows)
+        insert_quality_metrics(engine, run_id=run_id, segment_key=segment_key, metrics_rows=metrics_rows)
 
         degraded_metrics = [item for item in metrics_rows if item["degradation_detected"]]
         degraded_metric_names = [item["metric_name"] for item in degraded_metrics]
 
         summary = {
-            "segment_key": args.segment_key,
-            "baseline_source": args.baseline_source,
+            "segment_key": segment_key,
+            "baseline_source": baseline_source,
             "labeled_rows": int(len(labeled_window_df)),
             "positive_labels_rate": float(pd.to_numeric(labeled_window_df["y_true"], errors="coerce").fillna(0).mean()),
             "positive_predictions_rate": float(
@@ -432,8 +438,13 @@ def main() -> None:
             len(labeled_window_df),
             len(degraded_metrics),
         )
-        print("Quality job completed.")
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "summary": summary,
+            "labeled_rows": int(len(labeled_window_df)),
+            "degraded_metrics_count": len(degraded_metrics),
+        }
 
     except Exception as exc:
         logger.exception("Quality job failed. run_id=%s", run_id)
@@ -448,6 +459,31 @@ def main() -> None:
         raise
     finally:
         engine.dispose()
+
+
+def main() -> None:
+    """Execute one batch quality monitoring run over the latest labeled window."""
+
+    setup_logging()
+
+    parser = build_argument_parser()
+    args = parser.parse_args()
+
+    if args.window_size <= 0:
+        parser.error("--window-size must be greater than 0")
+    if args.min_rows <= 0:
+        parser.error("--min-rows must be greater than 0")
+
+    result = run_quality_job(
+        window_size=args.window_size,
+        min_rows=args.min_rows,
+        baseline_source=args.baseline_source,
+        segment_key=args.segment_key,
+    )
+
+    if result["status"] == "completed":
+        print("Quality job completed.")
+    print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
