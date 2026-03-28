@@ -7,12 +7,14 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 import joblib
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
@@ -31,6 +33,7 @@ from app.common.metrics import (
 
 
 logger = get_logger(__name__)
+OVERVIEW_PAGE_PATH = Path(__file__).resolve().parent / "static" / "overview.html"
 
 
 class PredictRequest(BaseModel):
@@ -114,6 +117,42 @@ class QualityRunResponse(BaseModel):
     summary: dict[str, Any] | None
 
 
+class OverviewDataSnapshotResponse(BaseModel):
+    """Aggregated counters and freshness timestamps for the overview page."""
+
+    total_predictions: int
+    total_labels: int
+    labeled_coverage: float
+    predictions_last_24h: int
+    labels_last_24h: int
+    latest_inference_ts: datetime | None
+    latest_label_ts: datetime | None
+    positive_prediction_rate: float | None
+    positive_label_rate: float | None
+
+
+class OverviewSegmentResponse(BaseModel):
+    """Segment-level activity summary shown on the overview page."""
+
+    segment_key: str
+    inference_rows: int
+    labeled_rows: int
+    labeled_coverage: float
+
+
+class MonitoringOverviewResponse(BaseModel):
+    """Top-level response for the monitoring overview endpoint."""
+
+    generated_at: datetime
+    model_version: str
+    service_status: Literal["ok", "attention"]
+    api_health: dict[str, Any]
+    data_snapshot: OverviewDataSnapshotResponse
+    latest_drift_run: DriftRunResponse | None
+    latest_quality_run: QualityRunResponse | None
+    top_segments: list[OverviewSegmentResponse]
+
+
 def to_native(value: Any) -> Any:
     """Convert pandas and numpy objects into JSON-serializable Python values."""
 
@@ -167,6 +206,14 @@ def parse_json_object(value: Any) -> dict[str, Any] | None:
         parsed = json.loads(value)
         return parsed if isinstance(parsed, dict) else {"value": parsed}
     return {"value": to_native(value)}
+
+
+def safe_ratio(numerator: int, denominator: int) -> float:
+    """Return a bounded ratio rounded for overview presentation."""
+
+    if denominator <= 0:
+        return 0.0
+    return round(float(numerator) / float(denominator), 4)
 
 
 def get_model(app: FastAPI) -> Any:
@@ -478,6 +525,133 @@ def list_quality_runs(engine: Engine, limit: int, segment_key: str | None = None
     ]
 
 
+def get_latest_drift_run(engine: Engine) -> DriftRunResponse | None:
+    """Return the latest drift run if it exists."""
+
+    runs = list_drift_runs(engine=engine, limit=1)
+    return runs[0] if runs else None
+
+
+def get_latest_quality_run(engine: Engine) -> QualityRunResponse | None:
+    """Return the latest quality run if it exists."""
+
+    runs = list_quality_runs(engine=engine, limit=1)
+    return runs[0] if runs else None
+
+
+def get_overview_data_snapshot(engine: Engine) -> OverviewDataSnapshotResponse:
+    """Load project-wide prediction and labeling counters for the overview."""
+
+    inference_query = text(
+        """
+        SELECT
+            COUNT(*) AS total_predictions,
+            COUNT(*) FILTER (WHERE ts >= NOW() - INTERVAL '24 hours') AS predictions_last_24h,
+            AVG(pred_label::double precision) AS positive_prediction_rate,
+            MAX(ts) AS latest_inference_ts
+        FROM inference_log
+        """
+    )
+
+    labels_query = text(
+        """
+        SELECT
+            COUNT(*) AS total_labels,
+            COUNT(*) FILTER (WHERE label_ts >= NOW() - INTERVAL '24 hours') AS labels_last_24h,
+            AVG(y_true::double precision) AS positive_label_rate,
+            MAX(label_ts) AS latest_label_ts
+        FROM ground_truth
+        """
+    )
+
+    with engine.connect() as connection:
+        inference_row = connection.execute(inference_query).mappings().one()
+        labels_row = connection.execute(labels_query).mappings().one()
+
+    total_predictions = int(inference_row["total_predictions"] or 0)
+    total_labels = int(labels_row["total_labels"] or 0)
+
+    return OverviewDataSnapshotResponse(
+        total_predictions=total_predictions,
+        total_labels=total_labels,
+        labeled_coverage=safe_ratio(total_labels, total_predictions),
+        predictions_last_24h=int(inference_row["predictions_last_24h"] or 0),
+        labels_last_24h=int(labels_row["labels_last_24h"] or 0),
+        latest_inference_ts=inference_row["latest_inference_ts"],
+        latest_label_ts=labels_row["latest_label_ts"],
+        positive_prediction_rate=(
+            round(float(inference_row["positive_prediction_rate"]), 4)
+            if inference_row["positive_prediction_rate"] is not None
+            else None
+        ),
+        positive_label_rate=(
+            round(float(labels_row["positive_label_rate"]), 4)
+            if labels_row["positive_label_rate"] is not None
+            else None
+        ),
+    )
+
+
+def get_top_segments(engine: Engine, limit: int = 5) -> list[OverviewSegmentResponse]:
+    """Return the busiest segments with inference and labeling coverage."""
+
+    query = text(
+        """
+        SELECT
+            COALESCE(il.segment_key, '(none)') AS segment_key,
+            COUNT(*) AS inference_rows,
+            COUNT(gt.request_id) AS labeled_rows
+        FROM inference_log il
+        LEFT JOIN ground_truth gt
+            ON gt.request_id = il.request_id
+        GROUP BY il.segment_key
+        ORDER BY COUNT(*) DESC, COALESCE(il.segment_key, '(none)') ASC
+        LIMIT :limit
+        """
+    )
+
+    with engine.connect() as connection:
+        rows = connection.execute(query, {"limit": limit}).mappings().all()
+
+    return [
+        OverviewSegmentResponse(
+            segment_key=str(row["segment_key"]),
+            inference_rows=int(row["inference_rows"] or 0),
+            labeled_rows=int(row["labeled_rows"] or 0),
+            labeled_coverage=safe_ratio(int(row["labeled_rows"] or 0), int(row["inference_rows"] or 0)),
+        )
+        for row in rows
+    ]
+
+
+def get_monitoring_overview_payload(app: FastAPI) -> MonitoringOverviewResponse:
+    """Build one aggregated monitoring overview payload for product-facing UI."""
+
+    engine = get_engine(app)
+    api_health = health()
+    data_snapshot = get_overview_data_snapshot(engine)
+    latest_drift_run = get_latest_drift_run(engine)
+    latest_quality_run = get_latest_quality_run(engine)
+    top_segments = get_top_segments(engine)
+
+    service_status: Literal["ok", "attention"] = "ok"
+    if latest_drift_run is None or latest_quality_run is None:
+        service_status = "attention"
+    elif latest_drift_run.overall_drift or latest_quality_run.degraded_metrics_count > 0:
+        service_status = "attention"
+
+    return MonitoringOverviewResponse(
+        generated_at=datetime.now(timezone.utc),
+        model_version=settings.model_version,
+        service_status=service_status,
+        api_health=api_health,
+        data_snapshot=data_snapshot,
+        latest_drift_run=latest_drift_run,
+        latest_quality_run=latest_quality_run,
+        top_segments=top_segments,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize model and database resources once for the API process."""
@@ -600,6 +774,27 @@ def metrics() -> Response:
             logger.exception("Failed to refresh Prometheus monitoring gauges from PostgreSQL.")
 
     return Response(content=render_metrics(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/monitoring/overview", response_model=MonitoringOverviewResponse)
+def get_monitoring_overview() -> MonitoringOverviewResponse:
+    """Return an aggregated product-facing overview of the monitoring system."""
+
+    try:
+        return get_monitoring_overview_payload(app)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to build monitoring overview.")
+        raise HTTPException(status_code=500, detail=f"Failed to build monitoring overview: {exc}") from exc
+
+
+@app.api_route("/overview", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def monitoring_overview_page() -> HTMLResponse:
+    """Serve a lightweight monitoring overview page backed by the JSON overview API."""
+
+    if not OVERVIEW_PAGE_PATH.exists():
+        raise HTTPException(status_code=500, detail="Overview page asset is missing.")
+
+    return HTMLResponse(OVERVIEW_PAGE_PATH.read_text(encoding="utf-8"))
 
 
 @app.post("/predict", response_model=PredictResponse)
