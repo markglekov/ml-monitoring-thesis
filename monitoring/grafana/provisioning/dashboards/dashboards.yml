@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: ML Monitoring Dashboards
+    orgId: 1
+    folder: ML Monitoring
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

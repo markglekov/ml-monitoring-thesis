@@ -1,0 +1,105 @@
+groups:
+  - name: ml-monitoring-api
+    rules:
+      - alert: MlMonitoringApiDown
+        expr: up{job="ml-monitoring-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: ML monitoring API is down
+          description: Prometheus cannot scrape the inference API metrics endpoint for more than 1 minute.
+
+      - alert: MlMonitoringPredict5xxRateHigh
+        expr: |
+          (
+            sum(rate(ml_monitoring_http_requests_total{job="ml-monitoring-api", path="/predict", status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(ml_monitoring_http_requests_total{job="ml-monitoring-api", path="/predict"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: Predict endpoint 5xx rate is high
+          description: The /predict endpoint is returning more than 5% 5xx responses over the last 5 minutes.
+
+      - alert: MlMonitoringPredictLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(ml_monitoring_http_request_duration_seconds_bucket{job="ml-monitoring-api", path="/predict"}[5m])
+            )
+          ) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: Predict endpoint latency is high
+          description: The p95 latency for /predict has been above 250ms for 10 minutes.
+
+  - name: ml-monitoring-jobs
+    rules:
+      - alert: MlMonitoringDriftDetected
+        expr: max(ml_monitoring_drift_last_run_overall{job="ml-monitoring-api"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: monitoring
+        annotations:
+          summary: Drift was detected
+          description: The latest drift monitoring run reports overall drift.
+
+      - alert: MlMonitoringQualityDegraded
+        expr: max(ml_monitoring_quality_last_run_degraded_metrics{job="ml-monitoring-api"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: monitoring
+        annotations:
+          summary: Quality degradation was detected
+          description: The latest quality monitoring run reports at least one degraded metric.
+
+      - alert: MlMonitoringDriftJobFailed
+        expr: max(ml_monitoring_drift_last_run_status{job="ml-monitoring-api", status="failed"}) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: monitoring
+        annotations:
+          summary: Drift monitoring job failed
+          description: The latest drift monitoring run ended with failed status.
+
+      - alert: MlMonitoringQualityJobFailed
+        expr: max(ml_monitoring_quality_last_run_status{job="ml-monitoring-api", status="failed"}) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: monitoring
+        annotations:
+          summary: Quality monitoring job failed
+          description: The latest quality monitoring run ended with failed status.
+
+      - alert: MlMonitoringDriftJobStale
+        expr: max(ml_monitoring_drift_last_run_age_seconds{job="ml-monitoring-api"}) > 900
+        for: 5m
+        labels:
+          severity: warning
+          service: monitoring
+        annotations:
+          summary: Drift monitoring job is stale
+          description: No completed drift monitoring run has updated metrics for more than 15 minutes.
+
+      - alert: MlMonitoringQualityJobStale
+        expr: max(ml_monitoring_quality_last_run_age_seconds{job="ml-monitoring-api"}) > 900
+        for: 5m
+        labels:
+          severity: warning
+          service: monitoring
+        annotations:
+          summary: Quality monitoring job is stale
+          description: No completed quality monitoring run has updated metrics for more than 15 minutes.

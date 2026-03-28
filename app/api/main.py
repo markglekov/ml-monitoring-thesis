@@ -12,7 +12,7 @@ from typing import Any, Literal
 import joblib
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
@@ -20,6 +20,14 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
+from app.common.metrics import (
+    CONTENT_TYPE_LATEST,
+    record_http_request,
+    record_labels_upserted,
+    record_prediction,
+    refresh_monitoring_gauges,
+    render_metrics,
+)
 
 
 logger = get_logger(__name__)
@@ -525,6 +533,37 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def prometheus_http_metrics_middleware(request: Request, call_next):
+    """Record Prometheus metrics for every API request except /metrics."""
+
+    request_path = request.url.path
+    started_at = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_seconds = time.perf_counter() - started_at
+        if request_path != "/metrics":
+            record_http_request(
+                method=request.method,
+                path=request_path,
+                status_code=500,
+                duration_seconds=duration_seconds,
+            )
+        raise
+
+    duration_seconds = time.perf_counter() - started_at
+    if request_path != "/metrics":
+        record_http_request(
+            method=request.method,
+            path=request_path,
+            status_code=response.status_code,
+            duration_seconds=duration_seconds,
+        )
+    return response
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     """Return service readiness information for probes and operators."""
@@ -547,6 +586,20 @@ def health() -> dict[str, Any]:
         "feature_count": len(feature_columns),
         "threshold": get_threshold(app),
     }
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Expose Prometheus metrics for the API and derived monitoring state."""
+
+    engine = getattr(app.state, "engine", None)
+    if engine is not None:
+        try:
+            refresh_monitoring_gauges(engine=engine, model_version=settings.model_version)
+        except Exception:
+            logger.exception("Failed to refresh Prometheus monitoring gauges from PostgreSQL.")
+
+    return Response(content=render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/predict", response_model=PredictResponse)
@@ -592,6 +645,12 @@ def predict(payload: PredictRequest) -> PredictResponse:
         logger.exception("Failed to persist inference log for request_id=%s", request_id)
         raise HTTPException(status_code=500, detail=f"Failed to write inference log: {exc}") from exc
 
+    record_prediction(
+        model_version=settings.model_version,
+        predicted_label=pred_label,
+        score=score,
+    )
+
     logger.info(
         "Prediction served. request_id=%s model_version=%s score=%.4f label=%s latency_ms=%.2f segment_key=%s",
         request_id,
@@ -622,11 +681,12 @@ def ingest_label(payload: GroundTruthLabelRequest) -> GroundTruthLabelResponse:
         raise HTTPException(status_code=404, detail=f"request_id not found: {payload.request_id}")
 
     try:
-        upsert_ground_truth_labels(engine, [payload])
+        upserted_count = upsert_ground_truth_labels(engine, [payload])
     except SQLAlchemyError as exc:
         logger.exception("Failed to persist delayed label for request_id=%s", payload.request_id)
         raise HTTPException(status_code=500, detail=f"Failed to write delayed label: {exc}") from exc
 
+    record_labels_upserted(settings.model_version, upserted_count)
     normalized_label_ts = normalize_label_ts(payload.label_ts)
     logger.info("Delayed label ingested. request_id=%s y_true=%s", payload.request_id, payload.y_true)
     return GroundTruthLabelResponse(
@@ -663,6 +723,7 @@ def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLa
         logger.exception("Failed to persist delayed labels batch. batch_size=%s", len(payload.labels))
         raise HTTPException(status_code=500, detail=f"Failed to write delayed labels batch: {exc}") from exc
 
+    record_labels_upserted(settings.model_version, upserted_count)
     logger.info("Delayed labels batch ingested. batch_size=%s upserted=%s", len(payload.labels), upserted_count)
     return GroundTruthLabelsBatchResponse(
         received_count=len(payload.labels),
