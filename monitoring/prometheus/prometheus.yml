@@ -22,6 +22,12 @@ scrape_configs:
       - targets:
           - alertmanager:9093
 
+  - job_name: email-relay
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - email-relay:8081
+
   - job_name: ml-monitoring-api
     metrics_path: /metrics
     static_configs:

@@ -2,7 +2,7 @@ global:
   resolve_timeout: 5m
 
 route:
-  receiver: dev-null
+  receiver: email-relay
   group_by:
     - alertname
     - severity
@@ -13,6 +13,10 @@ route:
 
 receivers:
   - name: dev-null
+  - name: email-relay
+    webhook_configs:
+      - url: http://email-relay:8081/alertmanager/webhook
+        send_resolved: true
 
 inhibit_rules:
   - source_matchers:
