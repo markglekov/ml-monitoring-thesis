@@ -1,4 +1,4 @@
-"""Inference API for serving model predictions and persisting prediction logs."""
+"""Inference API for predictions and monitoring persistence."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,17 +31,24 @@ from app.common.metrics import (
     render_metrics,
 )
 
-
 logger = get_logger(__name__)
-OVERVIEW_PAGE_PATH = Path(__file__).resolve().parent / "static" / "overview.html"
+OVERVIEW_PAGE_PATH = (
+    Path(__file__).resolve().parent / "static" / "overview.html"
+)
 
 
 class PredictRequest(BaseModel):
     """Incoming payload for a single online inference request."""
 
-    features: dict[str, Any] = Field(..., description="Feature dictionary expected by the model.")
-    segment_key: str | None = Field(default=None, description="Optional segment identifier for monitoring.")
-    request_id: str | None = Field(default=None, description="Optional external request identifier.")
+    features: dict[str, Any] = Field(
+        ..., description="Feature dictionary expected by the model."
+    )
+    segment_key: str | None = Field(
+        default=None, description="Optional segment identifier for monitoring."
+    )
+    request_id: str | None = Field(
+        default=None, description="Optional external request identifier."
+    )
 
 
 class PredictResponse(BaseModel):
@@ -60,7 +67,9 @@ class GroundTruthLabelRequest(BaseModel):
 
     request_id: str
     y_true: Literal[0, 1]
-    label_ts: datetime | None = Field(default=None, description="Optional label timestamp in UTC.")
+    label_ts: datetime | None = Field(
+        default=None, description="Optional label timestamp in UTC."
+    )
 
 
 class GroundTruthLabelsBatchRequest(BaseModel):
@@ -154,7 +163,7 @@ class MonitoringOverviewResponse(BaseModel):
 
 
 def to_native(value: Any) -> Any:
-    """Convert pandas and numpy objects into JSON-serializable Python values."""
+    """Convert pandas and numpy objects into JSON-serializable values."""
 
     if isinstance(value, dict):
         return {str(key): to_native(item) for key, item in value.items()}
@@ -171,17 +180,22 @@ def to_native(value: Any) -> Any:
 
 
 def normalize_feature_value(value: Any) -> Any:
-    """Convert JSON-null-like values back into pandas-compatible missing values."""
+    """Convert JSON null-like values into pandas missing values."""
 
     if value is None:
         return np.nan
     return value
 
 
-def build_inference_frame(features: dict[str, Any], feature_columns: list[str]) -> pd.DataFrame:
-    """Build a single-row dataframe with normalized missing values for model inference."""
+def build_inference_frame(
+    features: dict[str, Any], feature_columns: list[str]
+) -> pd.DataFrame:
+    """Build a single-row dataframe for model inference."""
 
-    row = {column: normalize_feature_value(features[column]) for column in feature_columns}
+    row = {
+        column: normalize_feature_value(features[column])
+        for column in feature_columns
+    }
     return pd.DataFrame([row])
 
 
@@ -189,10 +203,10 @@ def normalize_label_ts(label_ts: datetime | None) -> datetime:
     """Normalize delayed-label timestamps to timezone-aware UTC datetimes."""
 
     if label_ts is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if label_ts.tzinfo is None:
-        return label_ts.replace(tzinfo=timezone.utc)
-    return label_ts.astimezone(timezone.utc)
+        return label_ts.replace(tzinfo=UTC)
+    return label_ts.astimezone(UTC)
 
 
 def parse_json_object(value: Any) -> dict[str, Any] | None:
@@ -226,11 +240,13 @@ def get_model(app: FastAPI) -> Any:
 
 
 def get_engine(app: FastAPI) -> Engine:
-    """Return the database engine or raise a 503 if the service is not ready."""
+    """Return the database engine or raise a 503."""
 
     engine = getattr(app.state, "engine", None)
     if engine is None:
-        raise HTTPException(status_code=503, detail="Database engine is not initialized.")
+        raise HTTPException(
+            status_code=503, detail="Database engine is not initialized."
+        )
     return engine
 
 
@@ -239,7 +255,9 @@ def get_feature_columns(app: FastAPI) -> list[str]:
 
     feature_columns = getattr(app.state, "feature_columns", None)
     if feature_columns is None:
-        raise HTTPException(status_code=503, detail="Feature schema is not loaded.")
+        raise HTTPException(
+            status_code=503, detail="Feature schema is not loaded."
+        )
     return feature_columns
 
 
@@ -253,10 +271,14 @@ def validate_limit(limit: int) -> None:
     """Validate common pagination limit for list endpoints."""
 
     if limit <= 0 or limit > 100:
-        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+        raise HTTPException(
+            status_code=422, detail="limit must be between 1 and 100"
+        )
 
 
-def find_missing_request_ids(engine: Engine, request_ids: list[str]) -> list[str]:
+def find_missing_request_ids(
+    engine: Engine, request_ids: list[str]
+) -> list[str]:
     """Return request identifiers that are absent from inference_log."""
 
     if not request_ids:
@@ -271,14 +293,22 @@ def find_missing_request_ids(engine: Engine, request_ids: list[str]) -> list[str
     ).bindparams(bindparam("request_ids", expanding=True))
 
     with engine.connect() as connection:
-        rows = connection.execute(query, {"request_ids": request_ids}).mappings().all()
+        rows = (
+            connection.execute(query, {"request_ids": request_ids})
+            .mappings()
+            .all()
+        )
 
     existing_ids = {str(row["request_id"]) for row in rows}
-    return [request_id for request_id in request_ids if request_id not in existing_ids]
+    return [
+        request_id
+        for request_id in request_ids
+        if request_id not in existing_ids
+    ]
 
 
 def find_duplicate_values(values: list[str]) -> list[str]:
-    """Return duplicated string values while preserving a stable sorted output."""
+    """Return duplicated string values in a stable sorted order."""
 
     seen: set[str] = set()
     duplicates: set[str] = set()
@@ -292,14 +322,20 @@ def find_duplicate_values(values: list[str]) -> list[str]:
     return sorted(duplicates)
 
 
-def validate_features(features: dict[str, Any], feature_columns: list[str]) -> None:
-    """Validate that request features exactly match the trained model schema."""
+def validate_features(
+    features: dict[str, Any], feature_columns: list[str]
+) -> None:
+    """Validate that request features match the trained schema."""
 
     missing = [column for column in feature_columns if column not in features]
     extra = [column for column in features if column not in feature_columns]
 
     if missing or extra:
-        detail: dict[str, Any] = {"message": "Feature set does not match the trained baseline schema."}
+        detail: dict[str, Any] = {
+            "message": (
+                "Feature set does not match the trained baseline schema."
+            )
+        }
         if missing:
             detail["missing_features"] = missing
         if extra:
@@ -359,7 +395,9 @@ def insert_inference_log(
         connection.execute(query, payload)
 
 
-def upsert_ground_truth_labels(engine: Engine, labels: list[GroundTruthLabelRequest]) -> int:
+def upsert_ground_truth_labels(
+    engine: Engine, labels: list[GroundTruthLabelRequest]
+) -> int:
     """Insert or update delayed labels in ground_truth."""
 
     query = text(
@@ -392,7 +430,9 @@ def upsert_ground_truth_labels(engine: Engine, labels: list[GroundTruthLabelRequ
     return max(int(result.rowcount), 0) if result.rowcount is not None else 0
 
 
-def list_drift_runs(engine: Engine, limit: int, segment_key: str | None = None) -> list[DriftRunResponse]:
+def list_drift_runs(
+    engine: Engine, limit: int, segment_key: str | None = None
+) -> list[DriftRunResponse]:
     """List recent drift-monitoring runs with optional segment filtering."""
 
     if segment_key:
@@ -460,7 +500,9 @@ def list_drift_runs(engine: Engine, limit: int, segment_key: str | None = None) 
     ]
 
 
-def list_quality_runs(engine: Engine, limit: int, segment_key: str | None = None) -> list[QualityRunResponse]:
+def list_quality_runs(
+    engine: Engine, limit: int, segment_key: str | None = None
+) -> list[QualityRunResponse]:
     """List recent quality-monitoring runs with optional segment filtering."""
 
     if segment_key:
@@ -546,7 +588,9 @@ def get_overview_data_snapshot(engine: Engine) -> OverviewDataSnapshotResponse:
         """
         SELECT
             COUNT(*) AS total_predictions,
-            COUNT(*) FILTER (WHERE ts >= NOW() - INTERVAL '24 hours') AS predictions_last_24h,
+            COUNT(*) FILTER (
+                WHERE ts >= NOW() - INTERVAL '24 hours'
+            ) AS predictions_last_24h,
             AVG(pred_label::double precision) AS positive_prediction_rate,
             MAX(ts) AS latest_inference_ts
         FROM inference_log
@@ -557,7 +601,9 @@ def get_overview_data_snapshot(engine: Engine) -> OverviewDataSnapshotResponse:
         """
         SELECT
             COUNT(*) AS total_labels,
-            COUNT(*) FILTER (WHERE label_ts >= NOW() - INTERVAL '24 hours') AS labels_last_24h,
+            COUNT(*) FILTER (
+                WHERE label_ts >= NOW() - INTERVAL '24 hours'
+            ) AS labels_last_24h,
             AVG(y_true::double precision) AS positive_label_rate,
             MAX(label_ts) AS latest_label_ts
         FROM ground_truth
@@ -592,7 +638,9 @@ def get_overview_data_snapshot(engine: Engine) -> OverviewDataSnapshotResponse:
     )
 
 
-def get_top_segments(engine: Engine, limit: int = 5) -> list[OverviewSegmentResponse]:
+def get_top_segments(
+    engine: Engine, limit: int = 5
+) -> list[OverviewSegmentResponse]:
     """Return the busiest segments with inference and labeling coverage."""
 
     query = text(
@@ -618,14 +666,18 @@ def get_top_segments(engine: Engine, limit: int = 5) -> list[OverviewSegmentResp
             segment_key=str(row["segment_key"]),
             inference_rows=int(row["inference_rows"] or 0),
             labeled_rows=int(row["labeled_rows"] or 0),
-            labeled_coverage=safe_ratio(int(row["labeled_rows"] or 0), int(row["inference_rows"] or 0)),
+            labeled_coverage=safe_ratio(
+                int(row["labeled_rows"] or 0), int(row["inference_rows"] or 0)
+            ),
         )
         for row in rows
     ]
 
 
-def get_monitoring_overview_payload(app: FastAPI) -> MonitoringOverviewResponse:
-    """Build one aggregated monitoring overview payload for product-facing UI."""
+def get_monitoring_overview_payload(
+    app: FastAPI,
+) -> MonitoringOverviewResponse:
+    """Build one aggregated monitoring overview payload."""
 
     engine = get_engine(app)
     api_health = health()
@@ -635,13 +687,16 @@ def get_monitoring_overview_payload(app: FastAPI) -> MonitoringOverviewResponse:
     top_segments = get_top_segments(engine)
 
     service_status: Literal["ok", "attention"] = "ok"
-    if latest_drift_run is None or latest_quality_run is None:
-        service_status = "attention"
-    elif latest_drift_run.overall_drift or latest_quality_run.degraded_metrics_count > 0:
+    if (
+        latest_drift_run is None
+        or latest_quality_run is None
+        or latest_drift_run.overall_drift
+        or latest_quality_run.degraded_metrics_count > 0
+    ):
         service_status = "attention"
 
     return MonitoringOverviewResponse(
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         model_version=settings.model_version,
         service_status=service_status,
         api_health=api_health,
@@ -678,14 +733,23 @@ async def lifespan(app: FastAPI):
     app.state.feature_columns = baseline_profile["feature_columns"]
     app.state.threshold = float(baseline_profile.get("threshold", 0.5))
 
-    logger.info("Connecting to PostgreSQL at %s:%s", settings.postgres_host, settings.postgres_port)
-    app.state.engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
+    logger.info(
+        "Connecting to PostgreSQL at %s:%s",
+        settings.postgres_host,
+        settings.postgres_port,
+    )
+    app.state.engine = create_engine(
+        settings.database_url, future=True, pool_pre_ping=True
+    )
 
     with app.state.engine.connect() as connection:
         connection.execute(text("SELECT 1"))
 
     logger.info(
-        "API startup completed. model_version=%s, feature_count=%s, threshold=%.4f",
+        (
+            "API startup completed. model_version=%s, "
+            "feature_count=%s, threshold=%.4f"
+        ),
         settings.model_version,
         len(app.state.feature_columns),
         app.state.threshold,
@@ -751,7 +815,9 @@ def health() -> dict[str, Any]:
             connection.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
         logger.exception("Database health check failed.")
-        raise HTTPException(status_code=503, detail=f"Database check failed: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Database check failed: {exc}"
+        ) from exc
 
     return {
         "status": "ok",
@@ -769,37 +835,49 @@ def metrics() -> Response:
     engine = getattr(app.state, "engine", None)
     if engine is not None:
         try:
-            refresh_monitoring_gauges(engine=engine, model_version=settings.model_version)
+            refresh_monitoring_gauges(
+                engine=engine, model_version=settings.model_version
+            )
         except Exception:
-            logger.exception("Failed to refresh Prometheus monitoring gauges from PostgreSQL.")
+            logger.exception(
+                "Failed to refresh Prometheus monitoring gauges "
+                "from PostgreSQL."
+            )
 
     return Response(content=render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/monitoring/overview", response_model=MonitoringOverviewResponse)
 def get_monitoring_overview() -> MonitoringOverviewResponse:
-    """Return an aggregated product-facing overview of the monitoring system."""
+    """Return an aggregated product-facing monitoring overview."""
 
     try:
         return get_monitoring_overview_payload(app)
     except SQLAlchemyError as exc:
         logger.exception("Failed to build monitoring overview.")
-        raise HTTPException(status_code=500, detail=f"Failed to build monitoring overview: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to build monitoring overview: {exc}",
+        ) from exc
 
 
-@app.api_route("/overview", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@app.api_route(
+    "/overview", methods=["GET", "HEAD"], response_class=HTMLResponse
+)
 def monitoring_overview_page() -> HTMLResponse:
-    """Serve a lightweight monitoring overview page backed by the JSON overview API."""
+    """Serve a lightweight monitoring overview page."""
 
     if not OVERVIEW_PAGE_PATH.exists():
-        raise HTTPException(status_code=500, detail="Overview page asset is missing.")
+        raise HTTPException(
+            status_code=500, detail="Overview page asset is missing."
+        )
 
     return HTMLResponse(OVERVIEW_PAGE_PATH.read_text(encoding="utf-8"))
 
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(payload: PredictRequest) -> PredictResponse:
-    """Run online inference and persist the prediction event into PostgreSQL."""
+    """Run online inference and persist the prediction event."""
 
     model = get_model(app)
     engine = get_engine(app)
@@ -817,7 +895,9 @@ def predict(payload: PredictRequest) -> PredictResponse:
         score = float(model.predict_proba(X)[:, 1][0])
     except Exception as exc:
         logger.exception("Prediction failed for request_id=%s", request_id)
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Prediction failed: {exc}"
+        ) from exc
 
     pred_label = int(score >= threshold)
     latency_ms = (time.perf_counter() - started_at) * 1000.0
@@ -835,10 +915,16 @@ def predict(payload: PredictRequest) -> PredictResponse:
         )
     except IntegrityError as exc:
         logger.warning("Duplicate request_id rejected: %s", request_id)
-        raise HTTPException(status_code=409, detail=f"request_id already exists: {request_id}") from exc
+        raise HTTPException(
+            status_code=409, detail=f"request_id already exists: {request_id}"
+        ) from exc
     except SQLAlchemyError as exc:
-        logger.exception("Failed to persist inference log for request_id=%s", request_id)
-        raise HTTPException(status_code=500, detail=f"Failed to write inference log: {exc}") from exc
+        logger.exception(
+            "Failed to persist inference log for request_id=%s", request_id
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write inference log: {exc}"
+        ) from exc
 
     record_prediction(
         model_version=settings.model_version,
@@ -847,7 +933,10 @@ def predict(payload: PredictRequest) -> PredictResponse:
     )
 
     logger.info(
-        "Prediction served. request_id=%s model_version=%s score=%.4f label=%s latency_ms=%.2f segment_key=%s",
+        (
+            "Prediction served. request_id=%s model_version=%s "
+            "score=%.4f label=%s latency_ms=%.2f segment_key=%s"
+        ),
         request_id,
         settings.model_version,
         score,
@@ -868,22 +957,36 @@ def predict(payload: PredictRequest) -> PredictResponse:
 
 @app.post("/labels", response_model=GroundTruthLabelResponse)
 def ingest_label(payload: GroundTruthLabelRequest) -> GroundTruthLabelResponse:
-    """Ingest one delayed ground-truth label for a previously served request."""
+    """Ingest one delayed ground-truth label."""
 
     engine = get_engine(app)
-    missing_request_ids = find_missing_request_ids(engine, [payload.request_id])
+    missing_request_ids = find_missing_request_ids(
+        engine, [payload.request_id]
+    )
     if missing_request_ids:
-        raise HTTPException(status_code=404, detail=f"request_id not found: {payload.request_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"request_id not found: {payload.request_id}",
+        )
 
     try:
         upserted_count = upsert_ground_truth_labels(engine, [payload])
     except SQLAlchemyError as exc:
-        logger.exception("Failed to persist delayed label for request_id=%s", payload.request_id)
-        raise HTTPException(status_code=500, detail=f"Failed to write delayed label: {exc}") from exc
+        logger.exception(
+            "Failed to persist delayed label for request_id=%s",
+            payload.request_id,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write delayed label: {exc}"
+        ) from exc
 
     record_labels_upserted(settings.model_version, upserted_count)
     normalized_label_ts = normalize_label_ts(payload.label_ts)
-    logger.info("Delayed label ingested. request_id=%s y_true=%s", payload.request_id, payload.y_true)
+    logger.info(
+        "Delayed label ingested. request_id=%s y_true=%s",
+        payload.request_id,
+        payload.y_true,
+    )
     return GroundTruthLabelResponse(
         request_id=payload.request_id,
         y_true=int(payload.y_true),
@@ -893,7 +996,9 @@ def ingest_label(payload: GroundTruthLabelRequest) -> GroundTruthLabelResponse:
 
 
 @app.post("/labels/batch", response_model=GroundTruthLabelsBatchResponse)
-def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLabelsBatchResponse:
+def ingest_labels_batch(
+    payload: GroundTruthLabelsBatchRequest,
+) -> GroundTruthLabelsBatchResponse:
     """Ingest a batch of delayed ground-truth labels."""
 
     engine = get_engine(app)
@@ -902,24 +1007,42 @@ def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLa
     if duplicate_request_ids:
         raise HTTPException(
             status_code=422,
-            detail={"message": "Duplicate request_id values in batch payload.", "request_ids": duplicate_request_ids},
+            detail={
+                "message": "Duplicate request_id values in batch payload.",
+                "request_ids": duplicate_request_ids,
+            },
         )
 
     missing_request_ids = find_missing_request_ids(engine, request_ids)
     if missing_request_ids:
         raise HTTPException(
             status_code=422,
-            detail={"message": "Some request_id values were not found in inference_log.", "request_ids": missing_request_ids},
+            detail={
+                "message": (
+                    "Some request_id values were not found in inference_log."
+                ),
+                "request_ids": missing_request_ids,
+            },
         )
 
     try:
         upserted_count = upsert_ground_truth_labels(engine, payload.labels)
     except SQLAlchemyError as exc:
-        logger.exception("Failed to persist delayed labels batch. batch_size=%s", len(payload.labels))
-        raise HTTPException(status_code=500, detail=f"Failed to write delayed labels batch: {exc}") from exc
+        logger.exception(
+            "Failed to persist delayed labels batch. batch_size=%s",
+            len(payload.labels),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to write delayed labels batch: {exc}",
+        ) from exc
 
     record_labels_upserted(settings.model_version, upserted_count)
-    logger.info("Delayed labels batch ingested. batch_size=%s upserted=%s", len(payload.labels), upserted_count)
+    logger.info(
+        "Delayed labels batch ingested. batch_size=%s upserted=%s",
+        len(payload.labels),
+        upserted_count,
+    )
     return GroundTruthLabelsBatchResponse(
         received_count=len(payload.labels),
         upserted_count=upserted_count,
@@ -928,28 +1051,40 @@ def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLa
 
 
 @app.get("/monitoring/drift/runs", response_model=list[DriftRunResponse])
-def get_drift_runs(limit: int = 20, segment_key: str | None = None) -> list[DriftRunResponse]:
+def get_drift_runs(
+    limit: int = 20, segment_key: str | None = None
+) -> list[DriftRunResponse]:
     """Return recent drift-monitoring runs for operators and dashboards."""
 
     validate_limit(limit)
     engine = get_engine(app)
 
     try:
-        return list_drift_runs(engine=engine, limit=limit, segment_key=segment_key)
+        return list_drift_runs(
+            engine=engine, limit=limit, segment_key=segment_key
+        )
     except SQLAlchemyError as exc:
         logger.exception("Failed to fetch drift runs.")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch drift runs: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch drift runs: {exc}"
+        ) from exc
 
 
 @app.get("/monitoring/quality/runs", response_model=list[QualityRunResponse])
-def get_quality_runs(limit: int = 20, segment_key: str | None = None) -> list[QualityRunResponse]:
+def get_quality_runs(
+    limit: int = 20, segment_key: str | None = None
+) -> list[QualityRunResponse]:
     """Return recent quality-monitoring runs for operators and dashboards."""
 
     validate_limit(limit)
     engine = get_engine(app)
 
     try:
-        return list_quality_runs(engine=engine, limit=limit, segment_key=segment_key)
+        return list_quality_runs(
+            engine=engine, limit=limit, segment_key=segment_key
+        )
     except SQLAlchemyError as exc:
         logger.exception("Failed to fetch quality runs.")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch quality runs: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch quality runs: {exc}"
+        ) from exc

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import joblib
 import numpy as np
@@ -13,14 +12,10 @@ from scipy.stats import chi2_contingency, ks_2samp
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
 
-
+ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
 BASELINE_PATH = settings.baseline_path
 MODEL_PATH = settings.model_path
@@ -29,10 +24,12 @@ logger = get_logger(__name__)
 
 
 def load_reference_data() -> pd.DataFrame:
-    """Load the reference dataset used as the baseline window for drift checks."""
+    """Load the reference dataset used for drift checks."""
 
     if not REFERENCE_DATA_PATH.exists():
-        raise FileNotFoundError(f"Reference dataset not found: {REFERENCE_DATA_PATH}")
+        raise FileNotFoundError(
+            f"Reference dataset not found: {REFERENCE_DATA_PATH}"
+        )
 
     df = pd.read_csv(REFERENCE_DATA_PATH)
     if "target" in df.columns:
@@ -89,8 +86,10 @@ def normalize_categorical(series: pd.Series) -> pd.Series:
     return series.where(series.notna(), "__nan__").astype(str)
 
 
-def load_current_window(engine: Engine, window_size: int, segment_key: str | None = None) -> pd.DataFrame:
-    """Load the latest inference window from PostgreSQL and expand stored features."""
+def load_current_window(
+    engine: Engine, window_size: int, segment_key: str | None = None
+) -> pd.DataFrame:
+    """Load the latest inference window from PostgreSQL."""
 
     if segment_key:
         query = text(
@@ -145,21 +144,36 @@ def ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return out[columns]
 
 
-def calculate_numeric_psi(reference: pd.Series, current: pd.Series, bins: int = 10) -> float | None:
+def to_numeric_series(series: pd.Series) -> pd.Series:
+    """Convert a series to numeric values and keep pandas semantics."""
+
+    return cast(pd.Series, pd.to_numeric(series, errors="coerce"))
+
+
+def calculate_numeric_psi(
+    reference: pd.Series, current: pd.Series, bins: int = 10
+) -> float | None:
     """Calculate PSI for numeric features using reference quantile buckets."""
 
-    ref = pd.to_numeric(reference, errors="coerce").dropna()
-    cur = pd.to_numeric(current, errors="coerce").dropna()
+    ref = to_numeric_series(reference).dropna()
+    cur = to_numeric_series(current).dropna()
 
     if len(ref) < 10 or len(cur) < 10:
         return None
 
-    quantiles = np.unique(np.quantile(ref, np.linspace(0.0, 1.0, bins + 1)))
+    quantiles = np.unique(
+        np.quantile(ref.to_numpy(dtype=float), np.linspace(0.0, 1.0, bins + 1))
+    )
     if len(quantiles) < 2:
         return 0.0
 
-    ref_binned = pd.cut(ref, bins=quantiles, include_lowest=True, duplicates="drop")
-    cur_binned = pd.cut(cur, bins=quantiles, include_lowest=True, duplicates="drop")
+    bin_edges = quantiles.tolist()
+    ref_binned = pd.cut(
+        ref, bins=bin_edges, include_lowest=True, duplicates="drop"
+    )
+    cur_binned = pd.cut(
+        cur, bins=bin_edges, include_lowest=True, duplicates="drop"
+    )
 
     ref_pct = ref_binned.value_counts(normalize=True).sort_index()
     cur_pct = cur_binned.value_counts(normalize=True).sort_index()
@@ -169,15 +183,24 @@ def calculate_numeric_psi(reference: pd.Series, current: pd.Series, bins: int = 
     cur_pct = cur_pct.reindex(all_bins, fill_value=0.0)
 
     eps = 1e-6
-    ref_pct = np.clip(ref_pct.values, eps, None)
-    cur_pct = np.clip(cur_pct.values, eps, None)
+    ref_pct_values = np.clip(
+        np.asarray(ref_pct.to_numpy(dtype=float), dtype=float), eps, None
+    )
+    cur_pct_values = np.clip(
+        np.asarray(cur_pct.to_numpy(dtype=float), dtype=float), eps, None
+    )
 
-    psi = np.sum((cur_pct - ref_pct) * np.log(cur_pct / ref_pct))
+    psi = np.sum(
+        (cur_pct_values - ref_pct_values)
+        * np.log(cur_pct_values / ref_pct_values)
+    )
     return float(psi)
 
 
-def calculate_categorical_psi(reference: pd.Series, current: pd.Series) -> float | None:
-    """Calculate PSI for categorical features over aligned category frequencies."""
+def calculate_categorical_psi(
+    reference: pd.Series, current: pd.Series
+) -> float | None:
+    """Calculate PSI for categorical features."""
 
     ref = normalize_categorical(reference)
     cur = normalize_categorical(current)
@@ -193,18 +216,27 @@ def calculate_categorical_psi(reference: pd.Series, current: pd.Series) -> float
     cur_pct = cur_pct.reindex(all_values, fill_value=0.0)
 
     eps = 1e-6
-    ref_pct = np.clip(ref_pct.values, eps, None)
-    cur_pct = np.clip(cur_pct.values, eps, None)
+    ref_pct_values = np.clip(
+        np.asarray(ref_pct.to_numpy(dtype=float), dtype=float), eps, None
+    )
+    cur_pct_values = np.clip(
+        np.asarray(cur_pct.to_numpy(dtype=float), dtype=float), eps, None
+    )
 
-    psi = np.sum((cur_pct - ref_pct) * np.log(cur_pct / ref_pct))
+    psi = np.sum(
+        (cur_pct_values - ref_pct_values)
+        * np.log(cur_pct_values / ref_pct_values)
+    )
     return float(psi)
 
 
-def analyze_numeric_feature(feature_name: str, reference: pd.Series, current: pd.Series) -> dict[str, Any]:
+def analyze_numeric_feature(
+    feature_name: str, reference: pd.Series, current: pd.Series
+) -> dict[str, Any]:
     """Analyze one numeric feature with KS test and PSI."""
 
-    ref = pd.to_numeric(reference, errors="coerce").dropna()
-    cur = pd.to_numeric(current, errors="coerce").dropna()
+    ref = to_numeric_series(reference).dropna()
+    cur = to_numeric_series(current).dropna()
 
     if len(ref) < 10 or len(cur) < 10:
         return {
@@ -217,9 +249,15 @@ def analyze_numeric_feature(feature_name: str, reference: pd.Series, current: pd
             "details": {"status": "insufficient_data"},
         }
 
-    ks_stat, ks_pvalue = ks_2samp(ref, cur)
+    ks_result = cast(
+        Any, ks_2samp(ref.to_numpy(dtype=float), cur.to_numpy(dtype=float))
+    )
     psi_value = calculate_numeric_psi(ref, cur)
-    drift_detected = bool((ks_pvalue < 0.05) or ((psi_value is not None) and (psi_value >= 0.20)))
+    ks_stat = float(ks_result.statistic)
+    ks_pvalue = float(ks_result.pvalue)
+    drift_detected = bool(
+        (ks_pvalue < 0.05) or ((psi_value is not None) and (psi_value >= 0.20))
+    )
 
     return {
         "feature_name": feature_name,
@@ -229,7 +267,7 @@ def analyze_numeric_feature(feature_name: str, reference: pd.Series, current: pd
         "psi_value": psi_value,
         "drift_detected": drift_detected,
         "details": {
-            "ks_statistic": float(ks_stat),
+            "ks_statistic": ks_stat,
             "reference_mean": float(ref.mean()),
             "current_mean": float(cur.mean()),
             "reference_std": float(ref.std()) if len(ref) > 1 else 0.0,
@@ -240,7 +278,9 @@ def analyze_numeric_feature(feature_name: str, reference: pd.Series, current: pd
     }
 
 
-def analyze_categorical_feature(feature_name: str, reference: pd.Series, current: pd.Series) -> dict[str, Any]:
+def analyze_categorical_feature(
+    feature_name: str, reference: pd.Series, current: pd.Series
+) -> dict[str, Any]:
     """Analyze one categorical feature with chi-square test and PSI."""
 
     ref = normalize_categorical(reference)
@@ -264,19 +304,39 @@ def analyze_categorical_feature(feature_name: str, reference: pd.Series, current
     ref_counts = ref_counts.reindex(all_values, fill_value=0)
     cur_counts = cur_counts.reindex(all_values, fill_value=0)
 
-    contingency = np.vstack([ref_counts.values, cur_counts.values])
+    contingency = np.vstack(
+        [
+            np.asarray(ref_counts.to_numpy(dtype=float), dtype=float),
+            np.asarray(cur_counts.to_numpy(dtype=float), dtype=float),
+        ]
+    )
 
     if contingency.shape[1] <= 1:
         chi2_stat = 0.0
         chi2_pvalue = 1.0
     else:
-        chi2_stat, chi2_pvalue, _, _ = chi2_contingency(contingency)
+        chi2_result = cast(Any, chi2_contingency(contingency))
+        chi2_stat = float(chi2_result.statistic)
+        chi2_pvalue = float(chi2_result.pvalue)
 
     psi_value = calculate_categorical_psi(ref, cur)
-    drift_detected = bool((chi2_pvalue < 0.05) or ((psi_value is not None) and (psi_value >= 0.20)))
+    drift_detected = bool(
+        (chi2_pvalue < 0.05)
+        or ((psi_value is not None) and (psi_value >= 0.20))
+    )
 
-    top_ref = (ref_counts / ref_counts.sum()).sort_values(ascending=False).head(5).to_dict()
-    top_cur = (cur_counts / cur_counts.sum()).sort_values(ascending=False).head(5).to_dict()
+    top_ref = (
+        (ref_counts / ref_counts.sum())
+        .sort_values(ascending=False)
+        .head(5)
+        .to_dict()
+    )
+    top_cur = (
+        (cur_counts / cur_counts.sum())
+        .sort_values(ascending=False)
+        .head(5)
+        .to_dict()
+    )
 
     return {
         "feature_name": feature_name,
@@ -287,15 +347,21 @@ def analyze_categorical_feature(feature_name: str, reference: pd.Series, current
         "drift_detected": drift_detected,
         "details": {
             "chi2_statistic": float(chi2_stat),
-            "reference_top_values": {str(key): float(value) for key, value in top_ref.items()},
-            "current_top_values": {str(key): float(value) for key, value in top_cur.items()},
+            "reference_top_values": {
+                str(key): float(value) for key, value in top_ref.items()
+            },
+            "current_top_values": {
+                str(key): float(value) for key, value in top_cur.items()
+            },
             "reference_n": int(len(ref)),
             "current_n": int(len(cur)),
         },
     }
 
 
-def insert_monitoring_run(engine: Engine, window_size: int, segment_key: str | None) -> int:
+def insert_monitoring_run(
+    engine: Engine, window_size: int, segment_key: str | None
+) -> int:
     """Insert a monitoring run placeholder row and return its identifier."""
 
     query = text(
@@ -338,7 +404,7 @@ def finalize_monitoring_run(
     overall_drift: bool,
     summary: dict[str, Any],
 ) -> None:
-    """Finalize a monitoring run row with summary fields and completion time."""
+    """Finalize a monitoring run row with summary fields."""
 
     query = text(
         """
@@ -368,7 +434,9 @@ def finalize_monitoring_run(
         )
 
 
-def insert_drift_metrics(engine: Engine, run_id: int, results: list[dict[str, Any]]) -> None:
+def insert_drift_metrics(
+    engine: Engine, run_id: int, results: list[dict[str, Any]]
+) -> None:
     """Persist per-feature drift metrics for one monitoring run."""
 
     if not results:
@@ -427,8 +495,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = None) -> dict[str, Any]:
-    """Execute one batch drift-monitoring run and return a compact result payload."""
+def run_drift_job(
+    window_size: int, min_rows: int, segment_key: str | None = None
+) -> dict[str, Any]:
+    """Execute one batch drift-monitoring run."""
 
     if window_size <= 0:
         raise ValueError("window_size must be greater than 0")
@@ -436,7 +506,10 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
         raise ValueError("min_rows must be greater than 0")
 
     logger.info(
-        "Starting drift job. model_version=%s window_size=%s segment_key=%s min_rows=%s",
+        (
+            "Starting drift job. model_version=%s window_size=%s "
+            "segment_key=%s min_rows=%s"
+        ),
         settings.model_version,
         window_size,
         segment_key,
@@ -446,13 +519,21 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
     baseline_profile = load_baseline_profile()
     feature_columns = baseline_profile["feature_columns"]
     numeric_features = set(baseline_profile.get("numeric_features", []))
-    categorical_features = set(baseline_profile.get("categorical_features", []))
-    engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
-    run_id = insert_monitoring_run(engine, window_size=window_size, segment_key=segment_key)
+    categorical_features = set(
+        baseline_profile.get("categorical_features", [])
+    )
+    engine = create_engine(
+        settings.database_url, future=True, pool_pre_ping=True
+    )
+    run_id = insert_monitoring_run(
+        engine, window_size=window_size, segment_key=segment_key
+    )
 
     try:
         reference_df = ensure_columns(load_reference_data(), feature_columns)
-        current_df = load_current_window(engine, window_size=window_size, segment_key=segment_key)
+        current_df = load_current_window(
+            engine, window_size=window_size, segment_key=segment_key
+        )
 
         if current_df.empty or len(current_df) < min_rows:
             summary = {
@@ -469,14 +550,24 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
                 overall_drift=False,
                 summary=summary,
             )
-            logger.info("Drift job skipped due to insufficient data: %s", summary)
-            return {"run_id": run_id, "status": "skipped_insufficient_data", "summary": summary}
+            logger.info(
+                "Drift job skipped due to insufficient data: %s", summary
+            )
+            return {
+                "run_id": run_id,
+                "status": "skipped_insufficient_data",
+                "summary": summary,
+            }
 
         current_features_df = ensure_columns(current_df, feature_columns)
 
         model = load_model()
         reference_scores = model.predict_proba(reference_df)[:, 1]
-        current_scores = pd.to_numeric(current_df["__score"], errors="coerce").fillna(0.0).values
+        current_scores = (
+            pd.to_numeric(current_df["__score"], errors="coerce")
+            .fillna(0.0)
+            .values
+        )
 
         results: list[dict[str, Any]] = []
         for feature in feature_columns:
@@ -507,17 +598,24 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
 
         top_drift = sorted(
             results,
-            key=lambda item: (item["psi_value"] if item["psi_value"] is not None else -1.0),
+            key=lambda item: (
+                item["psi_value"] if item["psi_value"] is not None else -1.0
+            ),
             reverse=True,
         )[:5]
 
         threshold = float(baseline_profile.get("threshold", 0.5))
-        positive_rate_current = float(pd.to_numeric(current_df["__pred_label"], errors="coerce").fillna(0).mean())
+        positive_rate_current = float(
+            pd.to_numeric(current_df["__pred_label"], errors="coerce")
+            .fillna(0)
+            .mean()
+        )
         positive_rate_reference = float((reference_scores >= threshold).mean())
         drifted_features_count = len(drifted)
         total_features_count = len(results)
         overall_drift = drifted_features_count >= 2 or any(
-            item["feature_name"] == "__score" and item["drift_detected"] for item in drifted
+            item["feature_name"] == "__score" and item["drift_detected"]
+            for item in drifted
         )
 
         summary = {
@@ -548,7 +646,10 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
         )
 
         logger.info(
-            "Drift job completed. run_id=%s drifted_features=%s total_features=%s overall_drift=%s",
+            (
+                "Drift job completed. run_id=%s drifted_features=%s "
+                "total_features=%s overall_drift=%s"
+            ),
             run_id,
             drifted_features_count,
             total_features_count,
@@ -580,7 +681,7 @@ def run_drift_job(window_size: int, min_rows: int, segment_key: str | None = Non
 
 
 def main() -> None:
-    """Execute one batch drift-monitoring run over the latest inference window."""
+    """Execute one batch drift-monitoring run over the latest window."""
 
     setup_logging()
 

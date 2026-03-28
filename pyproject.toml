@@ -1,0 +1,79 @@
+[project]
+name = "ml-monitoring-thesis"
+version = "0.1.0"
+description = "End-to-end ML monitoring thesis prototype with training, inference, monitoring, and observability."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "evidently",
+    "fastapi",
+    "joblib",
+    "mlflow",
+    "numpy",
+    "pandas",
+    "prometheus-client",
+    "psycopg2-binary",
+    "pydantic",
+    "python-dotenv",
+    "requests",
+    "river",
+    "scikit-learn",
+    "scipy",
+    "sqlalchemy",
+    "ucimlrepo",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "pandas-stubs",
+    "pre-commit",
+    "pyright",
+    "pytest",
+    "ruff",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+    "integration: tests that exercise real PostgreSQL integration",
+]
+
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+src = ["app", "tests"]
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "artifacts",
+    "data",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pyright]
+include = ["app", "tests"]
+exclude = [".venv", ".uv-cache", "artifacts", "data"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownParameterType = false

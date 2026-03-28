@@ -2,26 +2,27 @@ from __future__ import annotations
 
 import json
 import smtplib
-import sys
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 from pydantic import BaseModel, Field
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
 
-
+ROOT = Path(__file__).resolve().parents[2]
 logger = get_logger(__name__)
 
 WEBHOOK_REQUESTS_TOTAL = Counter(
@@ -80,12 +81,17 @@ async def lifespan(app: FastAPI):
 
     setup_logging()
     if settings.smtp_use_ssl and settings.smtp_use_starttls:
-        raise RuntimeError("SMTP_USE_SSL and SMTP_USE_STARTTLS cannot both be enabled.")
+        raise RuntimeError(
+            "SMTP_USE_SSL and SMTP_USE_STARTTLS cannot both be enabled."
+        )
 
     configured = is_configured()
     EMAIL_CONFIGURED.set(1.0 if configured else 0.0)
     logger.info(
-        "Email relay startup completed. configured=%s host=%s port=%s recipients=%s starttls=%s ssl=%s",
+        (
+            "Email relay startup completed. configured=%s host=%s "
+            "port=%s recipients=%s starttls=%s ssl=%s"
+        ),
         configured,
         settings.smtp_host,
         settings.smtp_port,
@@ -104,9 +110,11 @@ app = FastAPI(
 
 
 def is_configured() -> bool:
-    """Return whether the email relay has enough SMTP config to send messages."""
+    """Return whether the relay has enough SMTP config to send messages."""
 
-    return bool(settings.smtp_host and settings.smtp_from and settings.alert_email_to)
+    return bool(
+        settings.smtp_host and settings.smtp_from and settings.alert_email_to
+    )
 
 
 def format_datetime(value: datetime | None) -> str:
@@ -114,10 +122,11 @@ def format_datetime(value: datetime | None) -> str:
 
     if value is None:
         return "n/a"
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    else:
-        value = value.astimezone(timezone.utc)
+    value = (
+        value.replace(tzinfo=UTC)
+        if value.tzinfo is None
+        else value.astimezone(UTC)
+    )
     return value.strftime("%Y-%m-%d %H:%M:%SZ")
 
 
@@ -128,7 +137,9 @@ def build_subject(payload: AlertmanagerWebhookPayload) -> str:
     alertname = payload.commonLabels.get("alertname", "multiple")
     service = payload.commonLabels.get("service", "multiple")
     severity = payload.commonLabels.get("severity", "mixed")
-    subject = f"[{status}] {alertname} | service={service} | severity={severity}"
+    subject = (
+        f"[{status}] {alertname} | service={service} | severity={severity}"
+    )
     return subject[:180]
 
 
@@ -142,7 +153,9 @@ def build_alert_block(alert: AlertmanagerAlert) -> str:
         f"  status: {alert.status}",
         f"  starts_at_utc: {format_datetime(alert.startsAt)}",
     ]
-    summary = alert.annotations.get("summary") or alert.annotations.get("description")
+    summary = alert.annotations.get("summary") or alert.annotations.get(
+        "description"
+    )
     if summary:
         lines.append(f"  summary: {summary}")
     if alert.generatorURL:
@@ -183,16 +196,24 @@ def build_body(payload: AlertmanagerWebhookPayload) -> str:
             lines.append("")
 
     if payload.truncatedAlerts:
-        lines.append(f"{payload.truncatedAlerts} additional alert(s) were truncated by Alertmanager.")
+        lines.append(
+            f"{payload.truncatedAlerts} additional alert(s) were "
+            "truncated by Alertmanager."
+        )
 
     return "\n".join(lines).strip()
 
 
-def send_email_notification(subject: str, body: str, alert_status: str) -> dict[str, Any]:
+def send_email_notification(
+    subject: str, body: str, alert_status: str
+) -> dict[str, Any]:
     """Send one email notification via SMTP."""
 
     if not is_configured():
-        raise RuntimeError("Email relay is not configured. SMTP_HOST, SMTP_FROM, and ALERT_EMAIL_TO are required.")
+        raise RuntimeError(
+            "Email relay is not configured. SMTP_HOST, SMTP_FROM, "
+            "and ALERT_EMAIL_TO are required."
+        )
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -200,25 +221,42 @@ def send_email_notification(subject: str, body: str, alert_status: str) -> dict[
     message["To"] = ", ".join(settings.alert_email_to)
     message.set_content(body)
 
-    smtp_client_class = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
+    smtp_client_class = (
+        smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
+    )
     started_at = time.perf_counter()
 
     try:
-        with smtp_client_class(settings.smtp_host, settings.smtp_port, timeout=settings.smtp_timeout_sec) as smtp:
+        with smtp_client_class(
+            settings.smtp_host,
+            settings.smtp_port,
+            timeout=settings.smtp_timeout_sec,
+        ) as smtp:
             smtp.ehlo()
             if settings.smtp_use_starttls:
                 smtp.starttls()
                 smtp.ehlo()
             if settings.smtp_username:
-                smtp.login(settings.smtp_username, settings.smtp_password or "")
+                smtp.login(
+                    settings.smtp_username, settings.smtp_password or ""
+                )
             send_result = smtp.send_message(message)
 
-        EMAIL_REQUEST_DURATION_SECONDS.observe(time.perf_counter() - started_at)
+        EMAIL_REQUEST_DURATION_SECONDS.observe(
+            time.perf_counter() - started_at
+        )
         if send_result:
-            EMAIL_NOTIFICATIONS_TOTAL.labels(result="failed", alert_status=alert_status).inc()
-            raise RuntimeError(f"SMTP rejected recipients: {json.dumps(send_result, ensure_ascii=False)}")
+            EMAIL_NOTIFICATIONS_TOTAL.labels(
+                result="failed", alert_status=alert_status
+            ).inc()
+            raise RuntimeError(
+                "SMTP rejected recipients: "
+                f"{json.dumps(send_result, ensure_ascii=False)}"
+            )
 
-        EMAIL_NOTIFICATIONS_TOTAL.labels(result="sent", alert_status=alert_status).inc()
+        EMAIL_NOTIFICATIONS_TOTAL.labels(
+            result="sent", alert_status=alert_status
+        ).inc()
         EMAIL_LAST_SUCCESS_TIMESTAMP.set(time.time())
         return {
             "status": "sent",
@@ -226,8 +264,12 @@ def send_email_notification(subject: str, body: str, alert_status: str) -> dict[
             "subject": subject,
         }
     except Exception as exc:
-        EMAIL_REQUEST_DURATION_SECONDS.observe(time.perf_counter() - started_at)
-        EMAIL_NOTIFICATIONS_TOTAL.labels(result="failed", alert_status=alert_status).inc()
+        EMAIL_REQUEST_DURATION_SECONDS.observe(
+            time.perf_counter() - started_at
+        )
+        EMAIL_NOTIFICATIONS_TOTAL.labels(
+            result="failed", alert_status=alert_status
+        ).inc()
         raise RuntimeError(f"SMTP request failed: {exc}") from exc
 
 
@@ -254,12 +296,17 @@ def metrics() -> Response:
 
 
 @app.post("/alertmanager/webhook")
-def alertmanager_webhook(payload: AlertmanagerWebhookPayload) -> dict[str, Any]:
+def alertmanager_webhook(
+    payload: AlertmanagerWebhookPayload,
+) -> dict[str, Any]:
     """Receive grouped alerts from Alertmanager and forward them via email."""
 
     if not is_configured():
         WEBHOOK_REQUESTS_TOTAL.labels(result="ignored_unconfigured").inc()
-        logger.warning("Email relay received webhook but SMTP settings are not configured.")
+        logger.warning(
+            "Email relay received webhook but SMTP settings are not "
+            "configured."
+        )
         return {
             "status": "ignored_unconfigured",
             "alerts_count": len(payload.alerts),
@@ -268,7 +315,9 @@ def alertmanager_webhook(payload: AlertmanagerWebhookPayload) -> dict[str, Any]:
     subject = build_subject(payload)
     body = build_body(payload)
     try:
-        email_result = send_email_notification(subject=subject, body=body, alert_status=payload.status)
+        email_result = send_email_notification(
+            subject=subject, body=body, alert_status=payload.status
+        )
     except Exception as exc:
         WEBHOOK_REQUESTS_TOTAL.labels(result="failed").inc()
         logger.exception("Email relay failed to deliver alert group.")
@@ -276,7 +325,10 @@ def alertmanager_webhook(payload: AlertmanagerWebhookPayload) -> dict[str, Any]:
 
     WEBHOOK_REQUESTS_TOTAL.labels(result="sent").inc()
     logger.info(
-        "Email relay delivered alert group. status=%s alerts=%s receiver=%s recipients=%s",
+        (
+            "Email relay delivered alert group. status=%s alerts=%s "
+            "receiver=%s recipients=%s"
+        ),
         payload.status,
         len(payload.alerts),
         payload.receiver,

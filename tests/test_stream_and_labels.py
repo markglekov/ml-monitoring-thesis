@@ -10,7 +10,9 @@ from app.monitoring import backfill_labels
 from app.simulator import generate_stream
 
 
-def test_apply_scenario_preserves_target_and_changes_features_for_drift() -> None:
+def test_apply_scenario_preserves_target_and_changes_features_for_drift() -> (
+    None
+):
     source_df = pd.DataFrame(
         {
             "age": [25, 30, 35],
@@ -22,10 +24,14 @@ def test_apply_scenario_preserves_target_and_changes_features_for_drift() -> Non
         }
     )
 
-    drifted_df = generate_stream.apply_scenario(source_df, scenario="mild", seed=42)
+    drifted_df = generate_stream.apply_scenario(
+        source_df, scenario="mild", seed=42
+    )
 
     assert drifted_df["target"].tolist() == [0, 1, 0]
-    assert not drifted_df.drop(columns=["target"]).equals(source_df.drop(columns=["target"]))
+    assert not drifted_df.drop(columns=["target"]).equals(
+        source_df.drop(columns=["target"])
+    )
 
 
 def test_repeat_to_size_raises_for_non_positive_rows() -> None:

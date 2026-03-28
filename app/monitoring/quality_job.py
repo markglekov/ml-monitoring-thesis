@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -19,14 +18,10 @@ from sklearn.metrics import (
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
 
-
+ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = settings.baseline_path
 
 DEGRADATION_RULES: dict[str, dict[str, Any]] = {
@@ -63,7 +58,7 @@ def to_native(value: Any) -> Any:
 
 
 def safe_json(obj: Any) -> str:
-    """Serialize Python objects into a JSON string for PostgreSQL JSONB columns."""
+    """Serialize Python objects into JSON for PostgreSQL JSONB columns."""
 
     return json.dumps(to_native(obj), ensure_ascii=False, default=str)
 
@@ -78,17 +73,24 @@ def load_baseline_profile() -> dict[str, Any]:
         return json.load(file_obj)
 
 
-def get_baseline_metrics(baseline_profile: dict[str, Any], baseline_source: str) -> dict[str, float]:
+def get_baseline_metrics(
+    baseline_profile: dict[str, Any], baseline_source: str
+) -> dict[str, float]:
     """Return reference metrics from the chosen baseline split."""
 
     metrics_key = f"{baseline_source}_metrics"
     metrics = baseline_profile.get(metrics_key)
     if not metrics:
-        raise ValueError(f"Baseline profile does not contain metrics for source: {baseline_source}")
+        raise ValueError(
+            "Baseline profile does not contain metrics for source: "
+            f"{baseline_source}"
+        )
     return metrics
 
 
-def load_labeled_window(engine: Engine, window_size: int, segment_key: str | None = None) -> pd.DataFrame:
+def load_labeled_window(
+    engine: Engine, window_size: int, segment_key: str | None = None
+) -> pd.DataFrame:
     """Load the latest labeled prediction rows from PostgreSQL."""
 
     if segment_key:
@@ -139,17 +141,35 @@ def load_labeled_window(engine: Engine, window_size: int, segment_key: str | Non
     return pd.DataFrame(rows)
 
 
-def compute_quality_metrics(window_df: pd.DataFrame) -> dict[str, float | None]:
+def compute_quality_metrics(
+    window_df: pd.DataFrame,
+) -> dict[str, float | None]:
     """Compute online quality metrics over a labeled prediction window."""
 
-    y_true = pd.to_numeric(window_df["y_true"], errors="coerce").fillna(0).astype(int)
-    y_pred = pd.to_numeric(window_df["pred_label"], errors="coerce").fillna(0).astype(int)
-    y_score = pd.to_numeric(window_df["score"], errors="coerce").fillna(0.0).astype(float)
+    y_true = (
+        pd.to_numeric(window_df["y_true"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+    y_pred = (
+        pd.to_numeric(window_df["pred_label"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+    y_score = (
+        pd.to_numeric(window_df["score"], errors="coerce")
+        .fillna(0.0)
+        .astype(float)
+    )
 
     metrics: dict[str, float | None] = {
-        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
-        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
-        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "precision": float(
+            precision_score(y_true, y_pred, zero_division=cast(Any, 0))
+        ),
+        "recall": float(
+            recall_score(y_true, y_pred, zero_division=cast(Any, 0))
+        ),
+        "f1": float(f1_score(y_true, y_pred, zero_division=cast(Any, 0))),
         "brier_score": float(brier_score_loss(y_true, y_score)),
         "positive_rate_pred": float(y_pred.mean()),
         "positive_rate_true": float(y_true.mean()),
@@ -165,8 +185,12 @@ def compute_quality_metrics(window_df: pd.DataFrame) -> dict[str, float | None]:
     return metrics
 
 
-def detect_metric_degradation(metric_name: str, metric_value: float | None, baseline_value: float | None) -> tuple[bool, float | None, dict[str, Any]]:
-    """Compare a live metric with its baseline counterpart and flag degradation."""
+def detect_metric_degradation(
+    metric_name: str,
+    metric_value: float | None,
+    baseline_value: float | None,
+) -> tuple[bool, float | None, dict[str, Any]]:
+    """Compare a live metric with its baseline counterpart."""
 
     rule = DEGRADATION_RULES.get(metric_name)
     if metric_value is None or baseline_value is None or rule is None:
@@ -188,7 +212,9 @@ def detect_metric_degradation(metric_name: str, metric_value: float | None, base
     return degraded, delta_value, {"mode": mode, "threshold": threshold}
 
 
-def insert_quality_run(engine: Engine, window_size: int, segment_key: str | None) -> int:
+def insert_quality_run(
+    engine: Engine, window_size: int, segment_key: str | None
+) -> int:
     """Insert a quality monitoring run placeholder row and return its id."""
 
     query = text(
@@ -258,7 +284,12 @@ def finalize_quality_run(
         )
 
 
-def insert_quality_metrics(engine: Engine, run_id: int, segment_key: str | None, metrics_rows: list[dict[str, Any]]) -> None:
+def insert_quality_metrics(
+    engine: Engine,
+    run_id: int,
+    segment_key: str | None,
+    metrics_rows: list[dict[str, Any]],
+) -> None:
     """Persist per-metric quality results for one run."""
 
     if not metrics_rows:
@@ -313,13 +344,15 @@ def build_metric_rows(
     labeled_rows: int,
     baseline_source: str,
 ) -> list[dict[str, Any]]:
-    """Build metric comparison rows ready for insertion into quality_metrics."""
+    """Build metric comparison rows for insertion into quality_metrics."""
 
     rows: list[dict[str, Any]] = []
 
     for metric_name, metric_value in current_metrics.items():
         baseline_value = baseline_metrics.get(metric_name)
-        degraded, delta_value, comparison_details = detect_metric_degradation(metric_name, metric_value, baseline_value)
+        degraded, delta_value, comparison_details = detect_metric_degradation(
+            metric_name, metric_value, baseline_value
+        )
 
         rows.append(
             {
@@ -346,7 +379,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window-size", type=int, default=300)
     parser.add_argument("--segment-key", type=str, default=None)
     parser.add_argument("--min-rows", type=int, default=50)
-    parser.add_argument("--baseline-source", type=str, choices=["test", "validation"], default="test")
+    parser.add_argument(
+        "--baseline-source",
+        type=str,
+        choices=["test", "validation"],
+        default="test",
+    )
     return parser
 
 
@@ -356,7 +394,7 @@ def run_quality_job(
     baseline_source: str = "test",
     segment_key: str | None = None,
 ) -> dict[str, Any]:
-    """Execute one batch quality-monitoring run and return a compact result payload."""
+    """Execute one batch quality-monitoring run."""
 
     if window_size <= 0:
         raise ValueError("window_size must be greater than 0")
@@ -364,7 +402,10 @@ def run_quality_job(
         raise ValueError("min_rows must be greater than 0")
 
     logger.info(
-        "Starting quality job. model_version=%s window_size=%s segment_key=%s baseline_source=%s",
+        (
+            "Starting quality job. model_version=%s window_size=%s "
+            "segment_key=%s baseline_source=%s"
+        ),
         settings.model_version,
         window_size,
         segment_key,
@@ -372,12 +413,20 @@ def run_quality_job(
     )
 
     baseline_profile = load_baseline_profile()
-    baseline_metrics = get_baseline_metrics(baseline_profile, baseline_source=baseline_source)
-    engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
-    run_id = insert_quality_run(engine, window_size=window_size, segment_key=segment_key)
+    baseline_metrics = get_baseline_metrics(
+        baseline_profile, baseline_source=baseline_source
+    )
+    engine = create_engine(
+        settings.database_url, future=True, pool_pre_ping=True
+    )
+    run_id = insert_quality_run(
+        engine, window_size=window_size, segment_key=segment_key
+    )
 
     try:
-        labeled_window_df = load_labeled_window(engine, window_size=window_size, segment_key=segment_key)
+        labeled_window_df = load_labeled_window(
+            engine, window_size=window_size, segment_key=segment_key
+        )
 
         if labeled_window_df.empty or len(labeled_window_df) < min_rows:
             summary = {
@@ -395,8 +444,15 @@ def run_quality_job(
                 degraded_metrics_count=0,
                 summary=summary,
             )
-            logger.info("Quality job skipped due to insufficient labeled rows: %s", summary)
-            return {"run_id": run_id, "status": "skipped_insufficient_data", "summary": summary}
+            logger.info(
+                "Quality job skipped due to insufficient labeled rows: %s",
+                summary,
+            )
+            return {
+                "run_id": run_id,
+                "status": "skipped_insufficient_data",
+                "summary": summary,
+            }
 
         current_metrics = compute_quality_metrics(labeled_window_df)
         metrics_rows = build_metric_rows(
@@ -405,18 +461,33 @@ def run_quality_job(
             labeled_rows=int(len(labeled_window_df)),
             baseline_source=baseline_source,
         )
-        insert_quality_metrics(engine, run_id=run_id, segment_key=segment_key, metrics_rows=metrics_rows)
+        insert_quality_metrics(
+            engine,
+            run_id=run_id,
+            segment_key=segment_key,
+            metrics_rows=metrics_rows,
+        )
 
-        degraded_metrics = [item for item in metrics_rows if item["degradation_detected"]]
-        degraded_metric_names = [item["metric_name"] for item in degraded_metrics]
+        degraded_metrics = [
+            item for item in metrics_rows if item["degradation_detected"]
+        ]
+        degraded_metric_names = [
+            item["metric_name"] for item in degraded_metrics
+        ]
 
         summary = {
             "segment_key": segment_key,
             "baseline_source": baseline_source,
             "labeled_rows": int(len(labeled_window_df)),
-            "positive_labels_rate": float(pd.to_numeric(labeled_window_df["y_true"], errors="coerce").fillna(0).mean()),
+            "positive_labels_rate": float(
+                pd.to_numeric(labeled_window_df["y_true"], errors="coerce")
+                .fillna(0)
+                .mean()
+            ),
             "positive_predictions_rate": float(
-                pd.to_numeric(labeled_window_df["pred_label"], errors="coerce").fillna(0).mean()
+                pd.to_numeric(labeled_window_df["pred_label"], errors="coerce")
+                .fillna(0)
+                .mean()
             ),
             "metrics": current_metrics,
             "baseline_metrics": baseline_metrics,
@@ -433,7 +504,10 @@ def run_quality_job(
         )
 
         logger.info(
-            "Quality job completed. run_id=%s labeled_rows=%s degraded_metrics=%s",
+            (
+                "Quality job completed. run_id=%s labeled_rows=%s "
+                "degraded_metrics=%s"
+            ),
             run_id,
             len(labeled_window_df),
             len(degraded_metrics),
@@ -462,7 +536,7 @@ def run_quality_job(
 
 
 def main() -> None:
-    """Execute one batch quality monitoring run over the latest labeled window."""
+    """Execute one batch quality monitoring run over the latest labels."""
 
     setup_logging()
 

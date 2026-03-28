@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -18,14 +18,19 @@ class DummyScoreModel:
         return np.column_stack([1.0 - scores, scores])
 
 
-def seed_inference_rows(engine, *, count: int, segment_key: str, positive_label_every: int = 2) -> None:
+def seed_inference_rows(
+    engine, *, count: int, segment_key: str, positive_label_every: int = 2
+) -> None:
     for index in range(count):
         age = 20 + index
         score = 0.9 if index % positive_label_every == 0 else 0.1
         main.insert_inference_log(
             engine=engine,
             request_id=f"00000000-0000-0000-0000-{index:012d}",
-            features={"age": age, "job": "admin" if index % 2 == 0 else "student"},
+            features={
+                "age": age,
+                "job": "admin" if index % 2 == 0 else "student",
+            },
             score=score,
             pred_label=int(score >= 0.5),
             threshold=0.5,
@@ -35,21 +40,30 @@ def seed_inference_rows(engine, *, count: int, segment_key: str, positive_label_
 
 
 @pytest.mark.integration
-def test_run_quality_job_persists_quality_run_and_metrics(monkeypatch, postgres_engine) -> None:
+def test_run_quality_job_persists_quality_run_and_metrics(
+    monkeypatch, postgres_engine
+) -> None:
     segment_key = "quality-it"
-    seed_inference_rows(postgres_engine, count=20, segment_key=segment_key, positive_label_every=2)
+    seed_inference_rows(
+        postgres_engine,
+        count=20,
+        segment_key=segment_key,
+        positive_label_every=2,
+    )
 
     labels = [
         main.GroundTruthLabelRequest(
             request_id=f"00000000-0000-0000-0000-{index:012d}",
             y_true=0 if index < 15 else 1,
-            label_ts=datetime.now(timezone.utc) - timedelta(minutes=index),
+            label_ts=datetime.now(UTC) - timedelta(minutes=index),
         )
         for index in range(20)
     ]
     main.upsert_ground_truth_labels(postgres_engine, labels)
 
-    monkeypatch.setattr(quality_job, "create_engine", lambda *args, **kwargs: postgres_engine)
+    monkeypatch.setattr(
+        quality_job, "create_engine", lambda *args, **kwargs: postgres_engine
+    )
     monkeypatch.setattr(
         quality_job,
         "load_baseline_profile",
@@ -78,8 +92,21 @@ def test_run_quality_job_persists_quality_run_and_metrics(monkeypatch, postgres_
     assert result["degraded_metrics_count"] > 0
 
     with postgres_engine.connect() as connection:
-        run_row = connection.execute(text("SELECT status, labeled_rows, degraded_metrics_count FROM quality_runs")).mappings().one()
-        metric_count = connection.execute(text("SELECT COUNT(*) FROM quality_metrics")).scalar_one()
+        run_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT status, labeled_rows, degraded_metrics_count
+                    FROM quality_runs
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        metric_count = connection.execute(
+            text("SELECT COUNT(*) FROM quality_metrics")
+        ).scalar_one()
 
     assert run_row["status"] == "completed"
     assert int(run_row["labeled_rows"]) == 20
@@ -88,7 +115,9 @@ def test_run_quality_job_persists_quality_run_and_metrics(monkeypatch, postgres_
 
 
 @pytest.mark.integration
-def test_run_drift_job_persists_monitoring_run_and_feature_metrics(monkeypatch, postgres_engine) -> None:
+def test_run_drift_job_persists_monitoring_run_and_feature_metrics(
+    monkeypatch, postgres_engine
+) -> None:
     segment_key = "drift-it"
     for index in range(20):
         age = 60 + index
@@ -104,7 +133,9 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(monkeypatch, 
             latency_ms=3.0 + index,
         )
 
-    monkeypatch.setattr(drift_job, "create_engine", lambda *args, **kwargs: postgres_engine)
+    monkeypatch.setattr(
+        drift_job, "create_engine", lambda *args, **kwargs: postgres_engine
+    )
     monkeypatch.setattr(
         drift_job,
         "load_baseline_profile",
@@ -127,19 +158,40 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(monkeypatch, 
     )
     monkeypatch.setattr(drift_job, "load_model", lambda: DummyScoreModel())
 
-    result = drift_job.run_drift_job(window_size=20, min_rows=10, segment_key=segment_key)
+    result = drift_job.run_drift_job(
+        window_size=20, min_rows=10, segment_key=segment_key
+    )
 
     assert result["status"] == "completed"
     assert result["overall_drift"] is True
     assert result["drifted_features_count"] > 0
 
     with postgres_engine.connect() as connection:
-        run_row = connection.execute(
-            text("SELECT status, drifted_features_count, overall_drift FROM monitoring_runs")
-        ).mappings().one()
-        metric_rows = connection.execute(
-            text("SELECT feature_name FROM drift_metrics ORDER BY feature_name")
-        ).scalars().all()
+        run_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT status, drifted_features_count, overall_drift
+                    FROM monitoring_runs
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        metric_rows = (
+            connection.execute(
+                text(
+                    """
+                    SELECT feature_name
+                    FROM drift_metrics
+                    ORDER BY feature_name
+                    """
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert run_row["status"] == "completed"
     assert bool(run_row["overall_drift"]) is True

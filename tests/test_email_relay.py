@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
@@ -13,14 +13,22 @@ def build_payload() -> email_relay.AlertmanagerWebhookPayload:
         receiver="email-relay",
         status="firing",
         externalURL="http://alertmanager:9093",
-        commonLabels={"alertname": "HighDrift", "service": "monitoring", "severity": "warning"},
+        commonLabels={
+            "alertname": "HighDrift",
+            "service": "monitoring",
+            "severity": "warning",
+        },
         commonAnnotations={"summary": "Drift exceeded threshold"},
         alerts=[
             email_relay.AlertmanagerAlert(
                 status="firing",
-                labels={"alertname": "HighDrift", "service": "monitoring", "severity": "warning"},
+                labels={
+                    "alertname": "HighDrift",
+                    "service": "monitoring",
+                    "severity": "warning",
+                },
                 annotations={"summary": "Drift exceeded threshold"},
-                startsAt=datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc),
+                startsAt=datetime(2026, 3, 28, 12, 0, tzinfo=UTC),
             )
         ],
     )
@@ -32,7 +40,9 @@ def test_build_subject_and_body_include_key_alert_fields() -> None:
     subject = email_relay.build_subject(payload)
     body = email_relay.build_body(payload)
 
-    assert subject == "[FIRING] HighDrift | service=monitoring | severity=warning"
+    assert (
+        subject == "[FIRING] HighDrift | service=monitoring | severity=warning"
+    )
     assert "ML Monitoring Alert" in body
     assert "Status: FIRING" in body
     assert "Alertmanager URL: http://alertmanager:9093" in body
@@ -67,10 +77,15 @@ def test_alertmanager_webhook_returns_sent_result(monkeypatch) -> None:
     assert response["status"] == "sent"
     assert response["alerts_count"] == 1
     assert response["recipients"] == ["owner@example.com"]
-    assert response["subject"] == "[FIRING] HighDrift | service=monitoring | severity=warning"
+    assert (
+        response["subject"]
+        == "[FIRING] HighDrift | service=monitoring | severity=warning"
+    )
 
 
-def test_alertmanager_webhook_raises_http_502_on_send_failure(monkeypatch) -> None:
+def test_alertmanager_webhook_raises_http_502_on_send_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(email_relay, "is_configured", lambda: True)
 
     def fail_send(subject: str, body: str, alert_status: str):

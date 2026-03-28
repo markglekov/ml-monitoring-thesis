@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -24,7 +24,9 @@ def configure_app_state() -> None:
 
 
 def test_build_inference_frame_normalizes_nulls() -> None:
-    frame = main.build_inference_frame({"age": 33, "job": None}, ["age", "job"])
+    frame = main.build_inference_frame(
+        {"age": 33, "job": None}, ["age", "job"]
+    )
 
     assert frame.shape == (1, 2)
     assert frame.iloc[0]["age"] == 33
@@ -37,7 +39,9 @@ def test_predict_returns_prediction_response(monkeypatch) -> None:
     def fake_insert_inference_log(**kwargs):
         captured.update(kwargs)
 
-    def fake_record_prediction(model_version: str, predicted_label: int, score: float) -> None:
+    def fake_record_prediction(
+        model_version: str, predicted_label: int, score: float
+    ) -> None:
         captured["metrics"] = {
             "model_version": model_version,
             "predicted_label": predicted_label,
@@ -45,7 +49,9 @@ def test_predict_returns_prediction_response(monkeypatch) -> None:
         }
 
     configure_app_state()
-    monkeypatch.setattr(main, "insert_inference_log", fake_insert_inference_log)
+    monkeypatch.setattr(
+        main, "insert_inference_log", fake_insert_inference_log
+    )
     monkeypatch.setattr(main, "record_prediction", fake_record_prediction)
 
     response = main.predict(
@@ -69,11 +75,14 @@ def test_predict_rejects_feature_schema_mismatch() -> None:
     configure_app_state()
 
     with pytest.raises(HTTPException) as exc_info:
-        main.predict(main.PredictRequest(features={"age": 42, "unexpected": "value"}))
+        main.predict(
+            main.PredictRequest(features={"age": 42, "unexpected": "value"})
+        )
 
+    detail = cast(dict[str, Any], exc_info.value.detail)
     assert exc_info.value.status_code == 422
-    assert exc_info.value.detail["missing_features"] == ["job"]
-    assert exc_info.value.detail["extra_features"] == ["unexpected"]
+    assert detail["missing_features"] == ["job"]
+    assert detail["extra_features"] == ["unexpected"]
 
 
 def test_ingest_labels_batch_rejects_duplicate_request_ids() -> None:
@@ -83,25 +92,34 @@ def test_ingest_labels_batch_rejects_duplicate_request_ids() -> None:
         main.ingest_labels_batch(
             main.GroundTruthLabelsBatchRequest(
                 labels=[
-                    main.GroundTruthLabelRequest(request_id="dup-id", y_true=1),
-                    main.GroundTruthLabelRequest(request_id="dup-id", y_true=0),
+                    main.GroundTruthLabelRequest(
+                        request_id="dup-id", y_true=1
+                    ),
+                    main.GroundTruthLabelRequest(
+                        request_id="dup-id", y_true=0
+                    ),
                 ]
             )
         )
 
+    detail = cast(dict[str, Any], exc_info.value.detail)
     assert exc_info.value.status_code == 422
-    assert exc_info.value.detail["message"] == "Duplicate request_id values in batch payload."
-    assert exc_info.value.detail["request_ids"] == ["dup-id"]
+    assert detail["message"] == "Duplicate request_id values in batch payload."
+    assert detail["request_ids"] == ["dup-id"]
 
 
 def test_ingest_labels_batch_upserts_labels(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_find_missing_request_ids(engine: object, request_ids: list[str]) -> list[str]:
+    def fake_find_missing_request_ids(
+        engine: object, request_ids: list[str]
+    ) -> list[str]:
         captured["request_ids"] = request_ids
         return []
 
-    def fake_upsert_ground_truth_labels(engine: object, labels: list[main.GroundTruthLabelRequest]) -> int:
+    def fake_upsert_ground_truth_labels(
+        engine: object, labels: list[main.GroundTruthLabelRequest]
+    ) -> int:
         captured["labels"] = labels
         return len(labels)
 
@@ -109,15 +127,25 @@ def test_ingest_labels_batch_upserts_labels(monkeypatch) -> None:
         captured["metrics"] = (model_version, count)
 
     configure_app_state()
-    monkeypatch.setattr(main, "find_missing_request_ids", fake_find_missing_request_ids)
-    monkeypatch.setattr(main, "upsert_ground_truth_labels", fake_upsert_ground_truth_labels)
-    monkeypatch.setattr(main, "record_labels_upserted", fake_record_labels_upserted)
+    monkeypatch.setattr(
+        main, "find_missing_request_ids", fake_find_missing_request_ids
+    )
+    monkeypatch.setattr(
+        main, "upsert_ground_truth_labels", fake_upsert_ground_truth_labels
+    )
+    monkeypatch.setattr(
+        main, "record_labels_upserted", fake_record_labels_upserted
+    )
 
     response = main.ingest_labels_batch(
         main.GroundTruthLabelsBatchRequest(
             labels=[
-                main.GroundTruthLabelRequest(request_id="11111111-1111-1111-1111-111111111111", y_true=1),
-                main.GroundTruthLabelRequest(request_id="22222222-2222-2222-2222-222222222222", y_true=0),
+                main.GroundTruthLabelRequest(
+                    request_id="11111111-1111-1111-1111-111111111111", y_true=1
+                ),
+                main.GroundTruthLabelRequest(
+                    request_id="22222222-2222-2222-2222-222222222222", y_true=0
+                ),
             ]
         )
     )
@@ -132,7 +160,9 @@ def test_ingest_labels_batch_upserts_labels(monkeypatch) -> None:
     assert captured["metrics"] == (main.settings.model_version, 2)
 
 
-def test_monitoring_overview_marks_attention_on_quality_degradation(monkeypatch) -> None:
+def test_monitoring_overview_marks_attention_on_quality_degradation(
+    monkeypatch,
+) -> None:
     main.app.state.engine = object()
 
     monkeypatch.setattr(
@@ -155,8 +185,8 @@ def test_monitoring_overview_marks_attention_on_quality_degradation(monkeypatch)
             labeled_coverage=0.5,
             predictions_last_24h=10,
             labels_last_24h=5,
-            latest_inference_ts=datetime.now(timezone.utc),
-            latest_label_ts=datetime.now(timezone.utc),
+            latest_inference_ts=datetime.now(UTC),
+            latest_label_ts=datetime.now(UTC),
             positive_prediction_rate=0.4,
             positive_label_rate=0.3,
         ),
@@ -166,8 +196,8 @@ def test_monitoring_overview_marks_attention_on_quality_degradation(monkeypatch)
         "get_latest_drift_run",
         lambda engine: main.DriftRunResponse(
             id=1,
-            ts_started=datetime.now(timezone.utc),
-            ts_finished=datetime.now(timezone.utc),
+            ts_started=datetime.now(UTC),
+            ts_finished=datetime.now(UTC),
             model_version=main.settings.model_version,
             window_size=100,
             segment_key=None,
@@ -183,8 +213,8 @@ def test_monitoring_overview_marks_attention_on_quality_degradation(monkeypatch)
         "get_latest_quality_run",
         lambda engine: main.QualityRunResponse(
             id=2,
-            ts_started=datetime.now(timezone.utc),
-            ts_finished=datetime.now(timezone.utc),
+            ts_started=datetime.now(UTC),
+            ts_finished=datetime.now(UTC),
             model_version=main.settings.model_version,
             window_size=100,
             segment_key=None,

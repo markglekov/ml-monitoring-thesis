@@ -8,7 +8,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
@@ -92,7 +91,8 @@ class Settings:
         """Build a SQLAlchemy-compatible PostgreSQL connection URL."""
 
         return (
-            f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
+            "postgresql+psycopg2://"
+            f"{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -103,8 +103,10 @@ settings = Settings(
     postgres_password=_get_env("POSTGRES_PASSWORD", "mlops"),
     postgres_host=_get_env("POSTGRES_HOST", "localhost"),
     postgres_port=_get_int_env("POSTGRES_PORT", 5432),
-    model_path=ROOT / _get_env("MODEL_PATH", "artifacts/models/bank_marketing_model.joblib"),
-    baseline_path=ROOT / _get_env("BASELINE_PATH", "artifacts/baselines/baseline_profile.json"),
+    model_path=ROOT
+    / _get_env("MODEL_PATH", "artifacts/models/bank_marketing_model.joblib"),
+    baseline_path=ROOT
+    / _get_env("BASELINE_PATH", "artifacts/baselines/baseline_profile.json"),
     model_version=_get_env("MODEL_VERSION", "bank_marketing_v1"),
     api_host=_get_env("API_HOST", "0.0.0.0"),
     api_port=_get_int_env("API_PORT", 8000),

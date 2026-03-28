@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - feature/**
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ml_monitoring
+          POSTGRES_USER: mlops
+          POSTGRES_PASSWORD: mlops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U mlops -d ml_monitoring"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      POSTGRES_DB: ml_monitoring
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: mlops
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      MODEL_PATH: artifacts/models/bank_marketing_model.joblib
+      BASELINE_PATH: artifacts/baselines/baseline_profile.json
+      MODEL_VERSION: bank_marketing_v1
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      TEST_DATABASE_URL: postgresql+psycopg2://mlops:mlops@127.0.0.1:5432/ml_monitoring
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups --frozen
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Pytest
+        run: uv run pytest -q

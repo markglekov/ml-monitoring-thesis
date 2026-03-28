@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from typing import Any
 
 from app.common.logging import get_logger, setup_logging
 from app.monitoring.drift_job import run_drift_job
 from app.monitoring.quality_job import run_quality_job
 
-
+ROOT = Path(__file__).resolve().parents[2]
 logger = get_logger(__name__)
 
 
@@ -32,7 +28,9 @@ class ScheduledJob:
 def build_argument_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the monitoring scheduler."""
 
-    parser = argparse.ArgumentParser(description="Recurring scheduler for drift and quality monitoring jobs")
+    parser = argparse.ArgumentParser(
+        description="Recurring scheduler for drift and quality monitoring jobs"
+    )
     parser.add_argument("--segment-key", type=str, default=None)
     parser.add_argument("--poll-interval-sec", type=float, default=5.0)
     parser.add_argument("--drift-interval-sec", type=float, default=300.0)
@@ -41,7 +39,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quality-window-size", type=int, default=300)
     parser.add_argument("--drift-min-rows", type=int, default=50)
     parser.add_argument("--quality-min-rows", type=int, default=50)
-    parser.add_argument("--quality-baseline-source", type=str, choices=["test", "validation"], default="test")
+    parser.add_argument(
+        "--quality-baseline-source",
+        type=str,
+        choices=["test", "validation"],
+        default="test",
+    )
     parser.add_argument("--skip-drift", action="store_true")
     parser.add_argument("--skip-quality", action="store_true")
     parser.add_argument("--max-job-runs", type=int, default=0)
@@ -55,7 +58,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def validate_args(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
     """Validate scheduler configuration before the loop starts."""
 
     if args.skip_drift and args.skip_quality:
@@ -90,7 +95,9 @@ def build_jobs(args: argparse.Namespace) -> list[ScheduledJob]:
             ScheduledJob(
                 name="drift",
                 interval_sec=float(args.drift_interval_sec),
-                next_run_at=start_at if initial_offset == 0.0 else start_at + float(args.drift_interval_sec),
+                next_run_at=start_at
+                if initial_offset == 0.0
+                else start_at + float(args.drift_interval_sec),
                 runner=lambda: run_drift_job(
                     window_size=int(args.drift_window_size),
                     min_rows=int(args.drift_min_rows),
@@ -104,7 +111,9 @@ def build_jobs(args: argparse.Namespace) -> list[ScheduledJob]:
             ScheduledJob(
                 name="quality",
                 interval_sec=float(args.quality_interval_sec),
-                next_run_at=start_at if initial_offset == 0.0 else start_at + float(args.quality_interval_sec),
+                next_run_at=start_at
+                if initial_offset == 0.0
+                else start_at + float(args.quality_interval_sec),
                 runner=lambda: run_quality_job(
                     window_size=int(args.quality_window_size),
                     min_rows=int(args.quality_min_rows),
@@ -135,13 +144,16 @@ def execute_job(job: ScheduledJob) -> dict[str, Any]:
 
 
 def run_scheduler(args: argparse.Namespace) -> None:
-    """Run the monitoring scheduler loop until interrupted or max-job-runs is reached."""
+    """Run the monitoring scheduler loop until interrupted."""
 
     jobs = build_jobs(args)
     total_runs = 0
 
     logger.info(
-        "Starting monitoring scheduler. jobs=%s segment_key=%s run_on_start=%s max_job_runs=%s",
+        (
+            "Starting monitoring scheduler. jobs=%s segment_key=%s "
+            "run_on_start=%s max_job_runs=%s"
+        ),
         [job.name for job in jobs],
         args.segment_key,
         args.run_on_start,
@@ -166,14 +178,20 @@ def run_scheduler(args: argparse.Namespace) -> None:
                 total_runs += 1
 
             if args.max_job_runs and total_runs >= args.max_job_runs:
-                logger.info("Stopping monitoring scheduler after max_job_runs=%s", args.max_job_runs)
+                logger.info(
+                    "Stopping monitoring scheduler after max_job_runs=%s",
+                    args.max_job_runs,
+                )
                 return
 
         if executed_any:
             continue
 
         next_run_at = min(job.next_run_at for job in jobs)
-        sleep_sec = max(0.1, min(float(args.poll_interval_sec), next_run_at - time.monotonic()))
+        sleep_sec = max(
+            0.1,
+            min(float(args.poll_interval_sec), next_run_at - time.monotonic()),
+        )
         time.sleep(sleep_sec)
 
 

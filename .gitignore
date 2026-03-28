@@ -3,6 +3,10 @@
 !.env.example
 .venv/
 venv/
+.uv-cache/
+.pre-commit-cache/
+.pyright/
+.pyrightcache/
 
 __pycache__/
 *.py[cod]

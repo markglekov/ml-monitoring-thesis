@@ -6,7 +6,9 @@ import pandas as pd
 from app.monitoring import drift_job
 
 
-def test_calculate_numeric_psi_is_near_zero_for_identical_distributions() -> None:
+def test_calculate_numeric_psi_is_near_zero_for_identical_distributions() -> (
+    None
+):
     reference = pd.Series(np.linspace(0, 100, 200))
     current = pd.Series(np.linspace(0, 100, 200))
 
@@ -26,10 +28,12 @@ def test_analyze_numeric_feature_detects_drift_for_large_shift() -> None:
     assert result["feature_type"] == "numeric"
     assert result["drift_detected"] is True
     assert result["psi_value"] is not None
-    assert result["details"]["current_mean"] > result["details"]["reference_mean"]
+    assert (
+        result["details"]["current_mean"] > result["details"]["reference_mean"]
+    )
 
 
-def test_analyze_categorical_feature_detects_drift_for_distribution_shift() -> None:
+def test_analyze_categorical_feature_detects_distribution_shift() -> None:
     reference = pd.Series(["a"] * 180 + ["b"] * 20)
     current = pd.Series(["a"] * 40 + ["b"] * 160)
 

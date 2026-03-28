@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.common.config import settings
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL_FILES = (
@@ -29,14 +29,16 @@ def _candidate_database_urls() -> list[str]:
 
     fallback_port = int(os.getenv("TEST_POSTGRES_PORT", "55432"))
     fallback_url = (
-        f"postgresql+psycopg2://{settings.postgres_user}:{settings.postgres_password}"
+        "postgresql+psycopg2://"
+        f"{settings.postgres_user}:{settings.postgres_password}"
         f"@127.0.0.1:{fallback_port}/{settings.postgres_db}"
     )
     if fallback_url not in urls:
         urls.append(fallback_url)
 
     localhost_fallback = (
-        f"postgresql+psycopg2://{settings.postgres_user}:{settings.postgres_password}"
+        "postgresql+psycopg2://"
+        f"{settings.postgres_user}:{settings.postgres_password}"
         f"@localhost:{fallback_port}/{settings.postgres_db}"
     )
     if localhost_fallback not in urls:
@@ -83,9 +85,11 @@ def postgres_base_url() -> str:
 
 
 @pytest.fixture()
-def postgres_engine(postgres_base_url: str) -> Engine:
+def postgres_engine(postgres_base_url: str) -> Iterator[Engine]:
     schema = f"test_{uuid.uuid4().hex[:12]}"
-    admin_engine = create_engine(postgres_base_url, future=True, pool_pre_ping=True)
+    admin_engine = create_engine(
+        postgres_base_url, future=True, pool_pre_ping=True
+    )
 
     with admin_engine.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
@@ -105,5 +109,7 @@ def postgres_engine(postgres_base_url: str) -> Engine:
     finally:
         engine.dispose()
         with admin_engine.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            connection.execute(
+                text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            )
         admin_engine.dispose()

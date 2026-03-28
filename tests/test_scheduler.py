@@ -29,7 +29,9 @@ def test_validate_args_rejects_disabling_all_jobs() -> None:
         scheduler.validate_args(args, parser)
 
 
-def test_build_jobs_respects_enabled_flags_and_run_on_start(monkeypatch) -> None:
+def test_build_jobs_respects_enabled_flags_and_run_on_start(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(scheduler.time, "monotonic", lambda: 100.0)
     args = argparse.Namespace(
         segment_key="segment-a",

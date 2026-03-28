@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 
-
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -18,7 +17,9 @@ def setup_logging(level: str | None = None) -> None:
     configuration in the current process.
     """
 
-    resolved_level = (level or os.getenv("LOG_LEVEL") or DEFAULT_LOG_LEVEL).upper()
+    resolved_level = (
+        level or os.getenv("LOG_LEVEL") or DEFAULT_LOG_LEVEL
+    ).upper()
 
     logging.basicConfig(
         level=getattr(logging, resolved_level, logging.INFO),

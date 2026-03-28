@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-
 
 HTTP_REQUESTS_TOTAL = Counter(
     "ml_monitoring_http_requests_total",
@@ -80,7 +85,10 @@ QUALITY_LAST_RUN_AGE_SECONDS = Gauge(
 
 QUALITY_LAST_RUN_DEGRADED_METRICS = Gauge(
     "ml_monitoring_quality_last_run_degraded_metrics",
-    "Number of degraded metrics detected in the latest quality monitoring run.",
+    (
+        "Number of degraded metrics detected in the latest "
+        "quality monitoring run."
+    ),
     ["model_version"],
 )
 
@@ -90,22 +98,35 @@ QUALITY_LAST_RUN_LABELED_ROWS = Gauge(
     ["model_version"],
 )
 
-KNOWN_RUN_STATUSES = ("running", "completed", "failed", "skipped_insufficient_data")
+KNOWN_RUN_STATUSES: tuple[
+    Literal["running"],
+    Literal["completed"],
+    Literal["failed"],
+    Literal["skipped_insufficient_data"],
+] = ("running", "completed", "failed", "skipped_insufficient_data")
 
 
-def record_http_request(method: str, path: str, status_code: int, duration_seconds: float) -> None:
+def record_http_request(
+    method: str, path: str, status_code: int, duration_seconds: float
+) -> None:
     """Record one completed HTTP request."""
 
     status = str(status_code)
     HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status=status).inc()
-    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=path).observe(duration_seconds)
+    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=path).observe(
+        duration_seconds
+    )
 
 
-def record_prediction(model_version: str, predicted_label: int, score: float) -> None:
+def record_prediction(
+    model_version: str, predicted_label: int, score: float
+) -> None:
     """Record one successful prediction result."""
 
     label = str(int(predicted_label))
-    PREDICTIONS_TOTAL.labels(model_version=model_version, predicted_label=label).inc()
+    PREDICTIONS_TOTAL.labels(
+        model_version=model_version, predicted_label=label
+    ).inc()
     PREDICTION_SCORE.labels(model_version=model_version).observe(float(score))
 
 
@@ -124,8 +145,8 @@ def _as_utc_datetime(value: Any) -> datetime | None:
         return None
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
     return None
 
 
@@ -134,22 +155,26 @@ def _seconds_since(value: datetime | None) -> float:
 
     if value is None:
         return 0.0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     delta = now - value
     return max(delta.total_seconds(), 0.0)
 
 
-def _refresh_status_gauge(gauge: Gauge, model_version: str, status: str | None) -> None:
+def _refresh_status_gauge(
+    gauge: Gauge, model_version: str, status: str | None
+) -> None:
     """Write the latest run status as a one-hot gauge vector."""
 
     gauge.clear()
     active_status = status or "unknown"
-    status_values = list(KNOWN_RUN_STATUSES)
+    status_values: list[str] = list(KNOWN_RUN_STATUSES)
     if active_status not in status_values:
         status_values.append(active_status)
 
     for candidate in status_values:
-        gauge.labels(model_version=model_version, status=candidate).set(1.0 if candidate == active_status else 0.0)
+        gauge.labels(model_version=model_version, status=candidate).set(
+            1.0 if candidate == active_status else 0.0
+        )
 
 
 def _clear_monitoring_gauges(model_version: str) -> None:
@@ -164,18 +189,26 @@ def _clear_monitoring_gauges(model_version: str) -> None:
     QUALITY_LAST_RUN_DEGRADED_METRICS.clear()
     QUALITY_LAST_RUN_LABELED_ROWS.clear()
 
-    _refresh_status_gauge(DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown")
-    _refresh_status_gauge(QUALITY_LAST_RUN_STATUS, model_version=model_version, status="unknown")
+    _refresh_status_gauge(
+        DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown"
+    )
+    _refresh_status_gauge(
+        QUALITY_LAST_RUN_STATUS, model_version=model_version, status="unknown"
+    )
     DRIFT_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(0.0)
-    DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(model_version=model_version).set(0.0)
+    DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(model_version=model_version).set(
+        0.0
+    )
     DRIFT_LAST_RUN_OVERALL.labels(model_version=model_version).set(0.0)
     QUALITY_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(0.0)
-    QUALITY_LAST_RUN_DEGRADED_METRICS.labels(model_version=model_version).set(0.0)
+    QUALITY_LAST_RUN_DEGRADED_METRICS.labels(model_version=model_version).set(
+        0.0
+    )
     QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(0.0)
 
 
 def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
-    """Refresh gauges derived from the latest drift and quality monitoring runs."""
+    """Refresh gauges derived from the latest monitoring runs."""
 
     drift_query = text(
         """
@@ -220,31 +253,63 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
 
     if drift_row is not None:
         drift_ts = _as_utc_datetime(drift_row["last_ts"])
-        _refresh_status_gauge(DRIFT_LAST_RUN_STATUS, model_version=model_version, status=drift_row["status"])
-        DRIFT_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(_seconds_since(drift_ts))
-        DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(model_version=model_version).set(
-            float(drift_row["drifted_features_count"] or 0)
+        _refresh_status_gauge(
+            DRIFT_LAST_RUN_STATUS,
+            model_version=model_version,
+            status=drift_row["status"],
         )
-        DRIFT_LAST_RUN_OVERALL.labels(model_version=model_version).set(1.0 if drift_row["overall_drift"] else 0.0)
+        DRIFT_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(
+            _seconds_since(drift_ts)
+        )
+        DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(
+            model_version=model_version
+        ).set(float(drift_row["drifted_features_count"] or 0))
+        DRIFT_LAST_RUN_OVERALL.labels(model_version=model_version).set(
+            1.0 if drift_row["overall_drift"] else 0.0
+        )
     else:
-        _refresh_status_gauge(DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown")
+        _refresh_status_gauge(
+            DRIFT_LAST_RUN_STATUS,
+            model_version=model_version,
+            status="unknown",
+        )
         DRIFT_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(0.0)
-        DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(model_version=model_version).set(0.0)
+        DRIFT_LAST_RUN_DRIFTED_FEATURES.labels(
+            model_version=model_version
+        ).set(0.0)
         DRIFT_LAST_RUN_OVERALL.labels(model_version=model_version).set(0.0)
 
     if quality_row is not None:
         quality_ts = _as_utc_datetime(quality_row["last_ts"])
-        _refresh_status_gauge(QUALITY_LAST_RUN_STATUS, model_version=model_version, status=quality_row["status"])
-        QUALITY_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(_seconds_since(quality_ts))
-        QUALITY_LAST_RUN_DEGRADED_METRICS.labels(model_version=model_version).set(
-            float(quality_row["degraded_metrics_count"] or 0)
+        _refresh_status_gauge(
+            QUALITY_LAST_RUN_STATUS,
+            model_version=model_version,
+            status=quality_row["status"],
         )
-        QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(float(quality_row["labeled_rows"] or 0))
+        QUALITY_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(
+            _seconds_since(quality_ts)
+        )
+        QUALITY_LAST_RUN_DEGRADED_METRICS.labels(
+            model_version=model_version
+        ).set(float(quality_row["degraded_metrics_count"] or 0))
+        QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(
+            float(quality_row["labeled_rows"] or 0)
+        )
     else:
-        _refresh_status_gauge(QUALITY_LAST_RUN_STATUS, model_version=model_version, status="unknown")
-        QUALITY_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(0.0)
-        QUALITY_LAST_RUN_DEGRADED_METRICS.labels(model_version=model_version).set(0.0)
-        QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(0.0)
+        _refresh_status_gauge(
+            QUALITY_LAST_RUN_STATUS,
+            model_version=model_version,
+            status="unknown",
+        )
+        QUALITY_LAST_RUN_AGE_SECONDS.labels(model_version=model_version).set(
+            0.0
+        )
+        QUALITY_LAST_RUN_DEGRADED_METRICS.labels(
+            model_version=model_version
+        ).set(0.0)
+        QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(
+            0.0
+        )
 
 
 def render_metrics() -> bytes:

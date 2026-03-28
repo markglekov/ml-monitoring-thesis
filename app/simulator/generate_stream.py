@@ -4,14 +4,13 @@ import argparse
 import math
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import requests
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TRAIN_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
@@ -21,7 +20,7 @@ MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def to_native(value: Any) -> Any:
-    """Convert pandas and numpy scalars into JSON-serializable Python values."""
+    """Convert pandas and numpy scalars into JSON-serializable values."""
 
     if pd.isna(value):
         return None
@@ -31,7 +30,7 @@ def to_native(value: Any) -> Any:
 
 
 def load_rows(source_split: str) -> pd.DataFrame:
-    """Load a processed dataset that still contains the original target column."""
+    """Load a processed dataset with the original target column."""
 
     if source_split == "train":
         data_path = TRAIN_DATA_PATH
@@ -67,27 +66,35 @@ def repeat_to_size(df: pd.DataFrame, rows: int, seed: int) -> pd.DataFrame:
         sampled_idx = rng.choice(len(df), size=len(df), replace=False)
         parts.append(df.iloc[sampled_idx].reset_index(drop=True))
 
-    return pd.concat(parts, ignore_index=True).iloc[:rows].reset_index(drop=True)
+    return (
+        pd.concat(parts, ignore_index=True).iloc[:rows].reset_index(drop=True)
+    )
 
 
 def apply_mild_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
-    """Apply a moderate shift to a subset of numeric and categorical features."""
+    """Apply a moderate shift to selected features."""
 
     rng = np.random.default_rng(seed)
     out = df.copy()
 
     if "age" in out.columns:
-        out["age"] = np.clip(out["age"].fillna(0) + rng.integers(4, 11, size=len(out)), 18, 95)
+        out["age"] = np.clip(
+            out["age"].fillna(0) + rng.integers(4, 11, size=len(out)), 18, 95
+        )
 
     if "balance" in out.columns:
-        out["balance"] = out["balance"].fillna(0) * rng.uniform(1.15, 1.35, size=len(out)) + rng.normal(
+        out["balance"] = out["balance"].fillna(0) * rng.uniform(
+            1.15, 1.35, size=len(out)
+        ) + rng.normal(
             200,
             80,
             size=len(out),
         )
 
     if "campaign" in out.columns:
-        out["campaign"] = np.maximum(out["campaign"].fillna(1) + rng.integers(1, 3, size=len(out)), 1)
+        out["campaign"] = np.maximum(
+            out["campaign"].fillna(1) + rng.integers(1, 3, size=len(out)), 1
+        )
 
     if "job" in out.columns:
         mask = rng.random(len(out)) < 0.25
@@ -107,23 +114,33 @@ def apply_severe_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
     out = df.copy()
 
     if "age" in out.columns:
-        out["age"] = np.clip(out["age"].fillna(0) + rng.integers(10, 21, size=len(out)), 18, 95)
+        out["age"] = np.clip(
+            out["age"].fillna(0) + rng.integers(10, 21, size=len(out)), 18, 95
+        )
 
     if "balance" in out.columns:
-        out["balance"] = out["balance"].fillna(0) * rng.uniform(1.5, 2.2, size=len(out)) + rng.normal(
+        out["balance"] = out["balance"].fillna(0) * rng.uniform(
+            1.5, 2.2, size=len(out)
+        ) + rng.normal(
             600,
             150,
             size=len(out),
         )
 
     if "campaign" in out.columns:
-        out["campaign"] = np.maximum(out["campaign"].fillna(1) + rng.integers(2, 6, size=len(out)), 1)
+        out["campaign"] = np.maximum(
+            out["campaign"].fillna(1) + rng.integers(2, 6, size=len(out)), 1
+        )
 
     if "pdays" in out.columns:
-        out["pdays"] = np.maximum(out["pdays"].fillna(0) + rng.integers(30, 120, size=len(out)), 0)
+        out["pdays"] = np.maximum(
+            out["pdays"].fillna(0) + rng.integers(30, 120, size=len(out)), 0
+        )
 
     if "previous" in out.columns:
-        out["previous"] = np.maximum(out["previous"].fillna(0) + rng.integers(1, 4, size=len(out)), 0)
+        out["previous"] = np.maximum(
+            out["previous"].fillna(0) + rng.integers(1, 4, size=len(out)), 0
+        )
 
     if "job" in out.columns:
         mask = rng.random(len(out)) < 0.45
@@ -149,7 +166,7 @@ def apply_severe_drift(df: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def apply_scenario(df: pd.DataFrame, scenario: str, seed: int) -> pd.DataFrame:
-    """Apply the selected scenario while preserving the original target column."""
+    """Apply the selected scenario and preserve the target column."""
 
     out = df.copy()
     feature_columns = [column for column in out.columns if column != "target"]
@@ -176,7 +193,7 @@ def post_one(
     segment_key: str,
     timeout: float,
 ) -> tuple[bool, str]:
-    """Send one request to the inference API with a stable request identifier."""
+    """Send one request to the inference API."""
 
     payload = {
         "request_id": request_id,
@@ -202,17 +219,26 @@ def post_one(
 def build_manifest_path(segment_key: str, scenario: str) -> Path:
     """Build a default manifest path for one generated stream."""
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     safe_segment_key = segment_key.replace("/", "_")
     return MANIFEST_DIR / f"stream_{safe_segment_key}_{scenario}_{ts}.csv"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate inference stream for monitoring")
+    parser = argparse.ArgumentParser(
+        description="Generate inference stream for monitoring"
+    )
     parser.add_argument("--api-url", type=str, default="http://localhost:8000")
-    parser.add_argument("--source-split", type=str, choices=["train", "test"], default="test")
+    parser.add_argument(
+        "--source-split", type=str, choices=["train", "test"], default="test"
+    )
     parser.add_argument("--rows", type=int, default=300)
-    parser.add_argument("--scenario", type=str, choices=["none", "mild", "severe"], default="none")
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        choices=["none", "mild", "severe"],
+        default="none",
+    )
     parser.add_argument("--segment-key", type=str, default=None)
     parser.add_argument("--sleep-sec", type=float, default=0.03)
     parser.add_argument("--timeout-sec", type=float, default=10.0)
@@ -225,10 +251,16 @@ def main() -> None:
 
     base_df = load_rows(source_split=args.source_split)
     sample_df = repeat_to_size(base_df, rows=args.rows, seed=args.seed)
-    stream_df = apply_scenario(sample_df, scenario=args.scenario, seed=args.seed)
+    stream_df = apply_scenario(
+        sample_df, scenario=args.scenario, seed=args.seed
+    )
 
     segment_key = args.segment_key or args.scenario
-    manifest_path = Path(args.manifest_path) if args.manifest_path else build_manifest_path(segment_key, args.scenario)
+    manifest_path = (
+        Path(args.manifest_path)
+        if args.manifest_path
+        else build_manifest_path(segment_key, args.scenario)
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     ok_count = 0
@@ -236,13 +268,16 @@ def main() -> None:
     manifest_records: list[dict[str, Any]] = []
 
     print(
-        f"Generating stream: rows={args.rows}, source_split={args.source_split}, "
+        f"Generating stream: rows={args.rows}, "
+        f"source_split={args.source_split}, "
         f"scenario={args.scenario}, segment_key={segment_key}"
     )
 
-    for idx, row in stream_df.iterrows():
+    for row_number, (_, row) in enumerate(stream_df.iterrows(), start=1):
         request_id = str(uuid.uuid4())
-        row_dict = row.to_dict()
+        row_dict: dict[str, Any] = {
+            str(key): value for key, value in row.items()
+        }
         target = int(row_dict.pop("target"))
 
         success, message = post_one(
@@ -262,15 +297,18 @@ def main() -> None:
                     "scenario": args.scenario,
                     "source_split": args.source_split,
                     "original_target": target,
-                    "sent_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "sent_at_utc": datetime.now(UTC).isoformat(),
                 }
             )
         else:
             fail_count += 1
-            print(f"[FAIL] row={idx}: {message}")
+            print(f"[FAIL] row={row_number}: {message}")
 
-        if (idx + 1) % 25 == 0 or idx == len(stream_df) - 1:
-            print(f"Progress: {idx + 1}/{len(stream_df)} | ok={ok_count} | fail={fail_count}")
+        if row_number % 25 == 0 or row_number == len(stream_df):
+            print(
+                f"Progress: {row_number}/{len(stream_df)} | "
+                f"ok={ok_count} | fail={fail_count}"
+            )
 
         if args.sleep_sec > 0:
             time.sleep(args.sleep_sec)

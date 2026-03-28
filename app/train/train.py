@@ -7,21 +7,19 @@ The script performs the following steps:
 4. Fit a preprocessing + logistic regression pipeline on the training split.
 5. Calibrate predicted probabilities on the validation split.
 6. Select the operating threshold that maximizes F1 on validation.
-7. Persist the fitted model, split files, and a baseline profile for monitoring.
+7. Persist the fitted model, split files, and a baseline profile
+   for monitoring.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import joblib
 import numpy as np
 import pandas as pd
-from ucimlrepo import fetch_ucirepo
-
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.frozen import FrozenEstimator
@@ -37,13 +35,11 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from ucimlrepo import fetch_ucirepo
 
 from app.common.logging import get_logger, setup_logging
 
+ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_DIR = ROOT / "artifacts"
 MODELS_DIR = ARTIFACTS_DIR / "models"
 BASELINES_DIR = ARTIFACTS_DIR / "baselines"
@@ -79,13 +75,21 @@ def load_bank_marketing() -> pd.DataFrame:
     """
 
     dataset = fetch_ucirepo(id=UCI_BANK_MARKETING_DATASET_ID)
+    data = dataset.data
+    if data is None or data.features is None or data.targets is None:
+        raise ValueError(
+            "Fetched Bank Marketing dataset does not contain "
+            "features and targets."
+        )
 
-    X = dataset.data.features.copy()
-    y = dataset.data.targets.copy()
+    X = cast(pd.DataFrame, data.features.copy())
+    y = data.targets.copy()
 
     if isinstance(y, pd.DataFrame):
         if y.shape[1] != 1:
-            raise ValueError("Expected exactly one target column in the source dataset.")
+            raise ValueError(
+                "Expected exactly one target column in the source dataset."
+            )
         y = y.iloc[:, 0]
 
     y = y.astype(str).str.strip().str.lower().map({"yes": 1, "no": 0})
@@ -104,14 +108,18 @@ def load_bank_marketing() -> pd.DataFrame:
 def drop_leakage_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """Remove columns that leak post-outcome information into training."""
 
-    columns_to_drop = [column for column in LEAKAGE_COLUMNS if column in df.columns]
+    columns_to_drop = [
+        column for column in LEAKAGE_COLUMNS if column in df.columns
+    ]
     if not columns_to_drop:
         return df, []
 
     return df.drop(columns=columns_to_drop), columns_to_drop
 
 
-def split_time_ordered(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def split_time_ordered(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Split the dataset into train, validation, and test segments in-order.
 
     The split is deterministic and keeps the original row order intact:
@@ -131,11 +139,15 @@ def split_time_ordered(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd
     return train_df, val_df, test_df
 
 
-def build_preprocessor(X: pd.DataFrame) -> tuple[ColumnTransformer, list[str], list[str]]:
-    """Build a preprocessing block for mixed numeric and categorical features."""
+def build_preprocessor(
+    X: pd.DataFrame,
+) -> tuple[ColumnTransformer, list[str], list[str]]:
+    """Build preprocessing for numeric and categorical features."""
 
     numeric_features = X.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_features = [column for column in X.columns if column not in numeric_features]
+    categorical_features = [
+        column for column in X.columns if column not in numeric_features
+    ]
 
     numeric_pipeline = Pipeline(
         steps=[
@@ -205,23 +217,29 @@ def compute_classification_metrics(
     y_score: np.ndarray,
     threshold: float,
 ) -> dict[str, float]:
-    """Compute threshold-dependent and ranking-based binary classification metrics."""
+    """Compute binary classification metrics for one decision threshold."""
 
     y_pred = (y_score >= threshold).astype(int)
 
     return {
         "roc_auc": float(roc_auc_score(y_true, y_score)),
         "pr_auc": float(average_precision_score(y_true, y_score)),
-        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
-        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
-        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "precision": float(
+            precision_score(y_true, y_pred, zero_division=cast(Any, 0))
+        ),
+        "recall": float(
+            recall_score(y_true, y_pred, zero_division=cast(Any, 0))
+        ),
+        "f1": float(f1_score(y_true, y_pred, zero_division=cast(Any, 0))),
         "brier_score": float(brier_score_loss(y_true, y_score)),
         "positive_rate_pred": float(np.mean(y_pred)),
         "positive_rate_true": float(np.mean(y_true)),
     }
 
 
-def choose_threshold(y_true: pd.Series, y_score: np.ndarray) -> tuple[float, dict[str, float]]:
+def choose_threshold(
+    y_true: pd.Series, y_score: np.ndarray
+) -> tuple[float, dict[str, float]]:
     """Select the decision threshold that maximizes validation F1 score."""
 
     best_threshold = 0.50
@@ -229,7 +247,9 @@ def choose_threshold(y_true: pd.Series, y_score: np.ndarray) -> tuple[float, dic
     best_metrics: dict[str, float] | None = None
 
     for threshold in THRESHOLD_GRID:
-        metrics = compute_classification_metrics(y_true, y_score, threshold=float(threshold))
+        metrics = compute_classification_metrics(
+            y_true, y_score, threshold=float(threshold)
+        )
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
             best_threshold = float(threshold)
@@ -239,8 +259,10 @@ def choose_threshold(y_true: pd.Series, y_score: np.ndarray) -> tuple[float, dic
     return best_threshold, best_metrics
 
 
-def make_baseline_profile(train_df: pd.DataFrame, feature_columns: list[str]) -> dict[str, Any]:
-    """Build a lightweight statistical profile for downstream monitoring jobs."""
+def make_baseline_profile(
+    train_df: pd.DataFrame, feature_columns: list[str]
+) -> dict[str, Any]:
+    """Build a lightweight statistical profile for monitoring jobs."""
 
     baseline: dict[str, Any] = {
         "row_count": int(len(train_df)),
@@ -254,24 +276,41 @@ def make_baseline_profile(train_df: pd.DataFrame, feature_columns: list[str]) ->
         if pd.api.types.is_numeric_dtype(series):
             baseline["features"][col] = {
                 "type": "numeric",
-                "mean": None if pd.isna(series.mean()) else float(series.mean()),
+                "mean": None
+                if pd.isna(series.mean())
+                else float(series.mean()),
                 "std": None if pd.isna(series.std()) else float(series.std()),
                 "min": None if pd.isna(series.min()) else float(series.min()),
                 "max": None if pd.isna(series.max()) else float(series.max()),
                 "quantiles": {
-                    "q05": None if pd.isna(series.quantile(0.05)) else float(series.quantile(0.05)),
-                    "q25": None if pd.isna(series.quantile(0.25)) else float(series.quantile(0.25)),
-                    "q50": None if pd.isna(series.quantile(0.50)) else float(series.quantile(0.50)),
-                    "q75": None if pd.isna(series.quantile(0.75)) else float(series.quantile(0.75)),
-                    "q95": None if pd.isna(series.quantile(0.95)) else float(series.quantile(0.95)),
+                    "q05": None
+                    if pd.isna(series.quantile(0.05))
+                    else float(series.quantile(0.05)),
+                    "q25": None
+                    if pd.isna(series.quantile(0.25))
+                    else float(series.quantile(0.25)),
+                    "q50": None
+                    if pd.isna(series.quantile(0.50))
+                    else float(series.quantile(0.50)),
+                    "q75": None
+                    if pd.isna(series.quantile(0.75))
+                    else float(series.quantile(0.75)),
+                    "q95": None
+                    if pd.isna(series.quantile(0.95))
+                    else float(series.quantile(0.95)),
                 },
             }
             continue
 
-        value_counts = series.astype(str).value_counts(normalize=True, dropna=False)
+        value_counts = series.astype(str).value_counts(
+            normalize=True, dropna=False
+        )
         baseline["features"][col] = {
             "type": "categorical",
-            "top_values": {str(key): float(value) for key, value in value_counts.head(20).items()},
+            "top_values": {
+                str(key): float(value)
+                for key, value in value_counts.head(20).items()
+            },
             "unique_count": int(series.nunique(dropna=False)),
         }
 
@@ -285,7 +324,7 @@ def save_artifacts(
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
 ) -> None:
-    """Persist the trained model, monitoring baseline, and processed data splits."""
+    """Persist the trained model, baseline, and processed data splits."""
 
     joblib.dump(calibrated_model, MODEL_PATH)
 
@@ -305,7 +344,11 @@ def main() -> None:
 
     logger.info("Loading UCI Bank Marketing dataset.")
     df = load_bank_marketing()
-    logger.info("Dataset loaded with shape=%s and columns=%s", df.shape, list(df.columns))
+    logger.info(
+        "Dataset loaded with shape=%s and columns=%s",
+        df.shape,
+        list(df.columns),
+    )
 
     df, dropped_columns = drop_leakage_columns(df)
     if dropped_columns:
@@ -327,7 +370,9 @@ def main() -> None:
     X_test = test_df[feature_columns]
     y_test = test_df["target"]
 
-    preprocessor, numeric_features, categorical_features = build_preprocessor(X_train)
+    preprocessor, numeric_features, categorical_features = build_preprocessor(
+        X_train
+    )
     logger.info("Numeric features: %s", numeric_features)
     logger.info("Categorical features: %s", categorical_features)
 
@@ -341,10 +386,15 @@ def main() -> None:
 
     val_scores = calibrated_model.predict_proba(X_val)[:, 1]
     best_threshold, val_metrics = choose_threshold(y_val, val_scores)
-    logger.info("Selected operating threshold %.4f based on validation F1.", best_threshold)
+    logger.info(
+        "Selected operating threshold %.4f based on validation F1.",
+        best_threshold,
+    )
 
     test_scores = calibrated_model.predict_proba(X_test)[:, 1]
-    test_metrics = compute_classification_metrics(y_test, test_scores, best_threshold)
+    test_metrics = compute_classification_metrics(
+        y_test, test_scores, best_threshold
+    )
 
     baseline_profile = make_baseline_profile(train_df, feature_columns)
     baseline_profile["threshold"] = best_threshold
@@ -361,11 +411,19 @@ def main() -> None:
     baseline_profile["dropped_columns"] = dropped_columns
 
     logger.info("Persisting model and generated artifacts.")
-    save_artifacts(calibrated_model, baseline_profile, train_df, val_df, test_df)
+    save_artifacts(
+        calibrated_model, baseline_profile, train_df, val_df, test_df
+    )
 
     logger.info("Training pipeline completed successfully.")
-    logger.info("Validation metrics:\n%s", json.dumps(val_metrics, ensure_ascii=False, indent=2))
-    logger.info("Test metrics:\n%s", json.dumps(test_metrics, ensure_ascii=False, indent=2))
+    logger.info(
+        "Validation metrics:\n%s",
+        json.dumps(val_metrics, ensure_ascii=False, indent=2),
+    )
+    logger.info(
+        "Test metrics:\n%s",
+        json.dumps(test_metrics, ensure_ascii=False, indent=2),
+    )
     logger.info("Model saved to %s", MODEL_PATH)
     logger.info("Baseline profile saved to %s", BASELINE_PATH)
 
