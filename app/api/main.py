@@ -6,14 +6,15 @@ import json
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 import joblib
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -41,6 +42,37 @@ class PredictResponse(BaseModel):
     threshold: float
     predicted_label: int
     segment_key: str | None
+
+
+class GroundTruthLabelRequest(BaseModel):
+    """Incoming payload for one delayed ground-truth label."""
+
+    request_id: str
+    y_true: Literal[0, 1]
+    label_ts: datetime | None = Field(default=None, description="Optional label timestamp in UTC.")
+
+
+class GroundTruthLabelsBatchRequest(BaseModel):
+    """Batch payload for delayed labels ingestion."""
+
+    labels: list[GroundTruthLabelRequest] = Field(..., min_length=1)
+
+
+class GroundTruthLabelResponse(BaseModel):
+    """Response for a single ingested delayed label."""
+
+    request_id: str
+    y_true: int
+    label_ts: datetime
+    status: str
+
+
+class GroundTruthLabelsBatchResponse(BaseModel):
+    """Response for a batch delayed-label ingestion request."""
+
+    received_count: int
+    upserted_count: int
+    status: str
 
 
 def to_native(value: Any) -> Any:
@@ -75,6 +107,16 @@ def build_inference_frame(features: dict[str, Any], feature_columns: list[str]) 
     return pd.DataFrame([row])
 
 
+def normalize_label_ts(label_ts: datetime | None) -> datetime:
+    """Normalize delayed-label timestamps to timezone-aware UTC datetimes."""
+
+    if label_ts is None:
+        return datetime.now(timezone.utc)
+    if label_ts.tzinfo is None:
+        return label_ts.replace(tzinfo=timezone.utc)
+    return label_ts.astimezone(timezone.utc)
+
+
 def get_model(app: FastAPI) -> Any:
     """Return the loaded model or raise a 503 if the service is not ready."""
 
@@ -106,6 +148,42 @@ def get_threshold(app: FastAPI) -> float:
     """Return the active decision threshold loaded at startup."""
 
     return float(getattr(app.state, "threshold", 0.5))
+
+
+def find_missing_request_ids(engine: Engine, request_ids: list[str]) -> list[str]:
+    """Return request identifiers that are absent from inference_log."""
+
+    if not request_ids:
+        return []
+
+    query = text(
+        """
+        SELECT request_id::text AS request_id
+        FROM inference_log
+        WHERE request_id::text IN :request_ids
+        """
+    ).bindparams(bindparam("request_ids", expanding=True))
+
+    with engine.connect() as connection:
+        rows = connection.execute(query, {"request_ids": request_ids}).mappings().all()
+
+    existing_ids = {str(row["request_id"]) for row in rows}
+    return [request_id for request_id in request_ids if request_id not in existing_ids]
+
+
+def find_duplicate_values(values: list[str]) -> list[str]:
+    """Return duplicated string values while preserving a stable sorted output."""
+
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        else:
+            seen.add(value)
+
+    return sorted(duplicates)
 
 
 def validate_features(features: dict[str, Any], feature_columns: list[str]) -> None:
@@ -173,6 +251,39 @@ def insert_inference_log(
 
     with engine.begin() as connection:
         connection.execute(query, payload)
+
+
+def upsert_ground_truth_labels(engine: Engine, labels: list[GroundTruthLabelRequest]) -> int:
+    """Insert or update delayed labels in ground_truth."""
+
+    query = text(
+        """
+        INSERT INTO ground_truth (request_id, y_true, label_ts)
+        VALUES (
+            CAST(:request_id AS UUID),
+            :y_true,
+            :label_ts
+        )
+        ON CONFLICT (request_id) DO UPDATE
+        SET
+            y_true = EXCLUDED.y_true,
+            label_ts = EXCLUDED.label_ts
+        """
+    )
+
+    payloads = [
+        {
+            "request_id": label.request_id,
+            "y_true": int(label.y_true),
+            "label_ts": normalize_label_ts(label.label_ts),
+        }
+        for label in labels
+    ]
+
+    with engine.begin() as connection:
+        result = connection.execute(query, payloads)
+
+    return max(int(result.rowcount), 0) if result.rowcount is not None else 0
 
 
 @asynccontextmanager
@@ -314,4 +425,63 @@ def predict(payload: PredictRequest) -> PredictResponse:
         threshold=threshold,
         predicted_label=pred_label,
         segment_key=payload.segment_key,
+    )
+
+
+@app.post("/labels", response_model=GroundTruthLabelResponse)
+def ingest_label(payload: GroundTruthLabelRequest) -> GroundTruthLabelResponse:
+    """Ingest one delayed ground-truth label for a previously served request."""
+
+    engine = get_engine(app)
+    missing_request_ids = find_missing_request_ids(engine, [payload.request_id])
+    if missing_request_ids:
+        raise HTTPException(status_code=404, detail=f"request_id not found: {payload.request_id}")
+
+    try:
+        upsert_ground_truth_labels(engine, [payload])
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to persist delayed label for request_id=%s", payload.request_id)
+        raise HTTPException(status_code=500, detail=f"Failed to write delayed label: {exc}") from exc
+
+    normalized_label_ts = normalize_label_ts(payload.label_ts)
+    logger.info("Delayed label ingested. request_id=%s y_true=%s", payload.request_id, payload.y_true)
+    return GroundTruthLabelResponse(
+        request_id=payload.request_id,
+        y_true=int(payload.y_true),
+        label_ts=normalized_label_ts,
+        status="upserted",
+    )
+
+
+@app.post("/labels/batch", response_model=GroundTruthLabelsBatchResponse)
+def ingest_labels_batch(payload: GroundTruthLabelsBatchRequest) -> GroundTruthLabelsBatchResponse:
+    """Ingest a batch of delayed ground-truth labels."""
+
+    engine = get_engine(app)
+    request_ids = [label.request_id for label in payload.labels]
+    duplicate_request_ids = find_duplicate_values(request_ids)
+    if duplicate_request_ids:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Duplicate request_id values in batch payload.", "request_ids": duplicate_request_ids},
+        )
+
+    missing_request_ids = find_missing_request_ids(engine, request_ids)
+    if missing_request_ids:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Some request_id values were not found in inference_log.", "request_ids": missing_request_ids},
+        )
+
+    try:
+        upserted_count = upsert_ground_truth_labels(engine, payload.labels)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to persist delayed labels batch. batch_size=%s", len(payload.labels))
+        raise HTTPException(status_code=500, detail=f"Failed to write delayed labels batch: {exc}") from exc
+
+    logger.info("Delayed labels batch ingested. batch_size=%s upserted=%s", len(payload.labels), upserted_count)
+    return GroundTruthLabelsBatchResponse(
+        received_count=len(payload.labels),
+        upserted_count=upserted_count,
+        status="upserted",
     )

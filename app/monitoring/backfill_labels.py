@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine, text
+import requests
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -84,6 +84,21 @@ def validate_args(args: argparse.Namespace) -> None:
         if not 0.0 <= float(args.flip_prob) <= 1.0:
             raise ValueError("flip_prob must be between 0 and 1")
 
+    if args.batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0")
+
+
+def post_labels_batch(api_url: str, labels: list[dict[str, Any]], timeout: float) -> dict[str, Any]:
+    """Send one delayed-label batch to the ingestion API."""
+
+    response = requests.post(
+        f"{api_url.rstrip('/')}/labels/batch",
+        json={"labels": labels},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return dict(response.json())
+
 
 def main() -> None:
     """Backfill delayed labels into ground_truth from a generated manifest."""
@@ -101,6 +116,9 @@ def main() -> None:
     parser.add_argument("--flip-prob", type=float, default=None)
     parser.add_argument("--delay-hours", type=float, default=24.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--api-url", type=str, default=f"http://localhost:{settings.api_port}")
+    parser.add_argument("--batch-size", type=int, default=500)
+    parser.add_argument("--timeout-sec", type=float, default=30.0)
     args = parser.parse_args()
 
     validate_args(args)
@@ -129,14 +147,6 @@ def main() -> None:
         len(manifest_df),
     )
 
-    insert_query = text(
-        """
-        INSERT INTO ground_truth (request_id, y_true, label_ts)
-        VALUES (CAST(:request_id AS UUID), :y_true, :label_ts)
-        ON CONFLICT (request_id) DO NOTHING
-        """
-    )
-
     payloads: list[dict[str, Any]] = []
     preview_rows: list[dict[str, Any]] = []
 
@@ -152,7 +162,7 @@ def main() -> None:
         payload = {
             "request_id": str(row["request_id"]),
             "y_true": y_true,
-            "label_ts": label_ts,
+            "label_ts": label_ts.isoformat(),
         }
         payloads.append(payload)
 
@@ -166,21 +176,23 @@ def main() -> None:
                 }
             )
 
-    engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
-    try:
-        with engine.begin() as connection:
-            result = connection.execute(insert_query, payloads)
-
-        inserted_count = max(int(result.rowcount), 0) if result.rowcount is not None else 0
-    finally:
-        engine.dispose()
+    inserted_count = 0
+    for offset in range(0, len(payloads), args.batch_size):
+        batch = payloads[offset : offset + args.batch_size]
+        batch_response = post_labels_batch(
+            api_url=args.api_url,
+            labels=batch,
+            timeout=float(args.timeout_sec),
+        )
+        inserted_count += int(batch_response.get("upserted_count", 0))
 
     print("Labels backfilled.")
     print(f"Manifest: {manifest_path}")
     print(f"Rows processed: {len(payloads)}")
-    print(f"Rows inserted: {inserted_count}")
+    print(f"Rows upserted via API: {inserted_count}")
     print(f"Label policy: {args.label_policy}")
     print(f"Delay hours: {args.delay_hours}")
+    print(f"API URL: {args.api_url}")
     print("Preview:")
     for item in preview_rows:
         print(item)
