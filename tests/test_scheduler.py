@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,7 +52,10 @@ def test_build_jobs_respects_enabled_flags_and_run_on_start(
 
     jobs = scheduler.build_jobs(args)
 
-    assert [job.name for job in jobs] == ["drift", "quality"]
+    assert [job.name for job in jobs] == [
+        "drift[segment-a]",
+        "quality[segment-a]",
+    ]
     assert [job.next_run_at for job in jobs] == [100.0, 100.0]
 
 
@@ -111,3 +115,40 @@ def test_build_jobs_runners_delegate_to_monitoring_jobs(monkeypatch) -> None:
     }
     assert drift_job.next_run_at == 60.0
     assert quality_job.next_run_at == 70.0
+
+
+def test_build_jobs_uses_configured_segments_when_cli_segment_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(scheduler.time, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(
+        scheduler,
+        "settings",
+        SimpleNamespace(
+            monitoring_segments=("segment-a", "segment-b"),
+            scheduler_include_global_segment=True,
+        ),
+    )
+    args = argparse.Namespace(
+        segment_key=None,
+        poll_interval_sec=5.0,
+        drift_interval_sec=30.0,
+        quality_interval_sec=60.0,
+        drift_window_size=100,
+        quality_window_size=100,
+        drift_min_rows=20,
+        quality_min_rows=20,
+        quality_baseline_source="test",
+        skip_drift=False,
+        skip_quality=True,
+        max_job_runs=0,
+        run_on_start=True,
+    )
+
+    jobs = scheduler.build_jobs(args)
+
+    assert [job.name for job in jobs] == [
+        "drift",
+        "drift[segment-a]",
+        "drift[segment-b]",
+    ]

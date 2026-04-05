@@ -30,12 +30,35 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
     metric_value DOUBLE PRECISION,
     baseline_value DOUBLE PRECISION,
     delta_value DOUBLE PRECISION,
+    detector_name TEXT NOT NULL DEFAULT 'labeled',
+    effect_size DOUBLE PRECISION,
+    pvalue_adj DOUBLE PRECISION,
+    severity TEXT NOT NULL DEFAULT 'none',
+    recommended_action TEXT,
     degradation_detected BOOLEAN NOT NULL DEFAULT FALSE,
     details_json JSONB
 );
+
+ALTER TABLE quality_metrics
+    ADD COLUMN IF NOT EXISTS detector_name TEXT NOT NULL DEFAULT 'labeled';
+
+ALTER TABLE quality_metrics
+    ADD COLUMN IF NOT EXISTS effect_size DOUBLE PRECISION;
+
+ALTER TABLE quality_metrics
+    ADD COLUMN IF NOT EXISTS pvalue_adj DOUBLE PRECISION;
+
+ALTER TABLE quality_metrics
+    ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'none';
+
+ALTER TABLE quality_metrics
+    ADD COLUMN IF NOT EXISTS recommended_action TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_quality_metrics_run_id
     ON quality_metrics(run_id);
 
 CREATE INDEX IF NOT EXISTS idx_quality_metrics_metric_name
     ON quality_metrics(metric_name);
+
+CREATE INDEX IF NOT EXISTS idx_quality_metrics_severity
+    ON quality_metrics(severity);

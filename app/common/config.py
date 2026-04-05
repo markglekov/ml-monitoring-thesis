@@ -72,6 +72,8 @@ class Settings:
     model_path: Path
     baseline_path: Path
     model_version: str
+    monitoring_segments: tuple[str, ...]
+    scheduler_include_global_segment: bool
 
     api_host: str
     api_port: int
@@ -108,6 +110,10 @@ settings = Settings(
     baseline_path=ROOT
     / _get_env("BASELINE_PATH", "artifacts/baselines/baseline_profile.json"),
     model_version=_get_env("MODEL_VERSION", "bank_marketing_v1"),
+    monitoring_segments=_get_list_env("MONITORING_SEGMENTS", default=()),
+    scheduler_include_global_segment=_get_bool_env(
+        "SCHEDULER_INCLUDE_GLOBAL_SEGMENT", default=True
+    ),
     api_host=_get_env("API_HOST", "0.0.0.0"),
     api_port=_get_int_env("API_PORT", 8000),
     smtp_host=_get_env("SMTP_HOST", ""),

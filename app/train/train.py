@@ -232,8 +232,68 @@ def compute_classification_metrics(
         ),
         "f1": float(f1_score(y_true, y_pred, zero_division=cast(Any, 0))),
         "brier_score": float(brier_score_loss(y_true, y_score)),
+        "ece": float(compute_expected_calibration_error(y_true, y_score)),
         "positive_rate_pred": float(np.mean(y_pred)),
         "positive_rate_true": float(np.mean(y_true)),
+    }
+
+
+def compute_expected_calibration_error(
+    y_true: pd.Series,
+    y_score: np.ndarray,
+    bins: int = 10,
+) -> float:
+    """Compute a simple expected calibration error over equal-width bins."""
+
+    y_true_array = pd.to_numeric(y_true, errors="coerce").fillna(0).astype(int)
+    y_score_array = np.clip(np.asarray(y_score, dtype=float), 0.0, 1.0)
+    bin_edges = np.linspace(0.0, 1.0, bins + 1)
+    total_count = len(y_score_array)
+
+    if total_count == 0:
+        return 0.0
+
+    ece = 0.0
+    for index in range(bins):
+        left = bin_edges[index]
+        right = bin_edges[index + 1]
+        if index == bins - 1:
+            mask = (y_score_array >= left) & (y_score_array <= right)
+        else:
+            mask = (y_score_array >= left) & (y_score_array < right)
+
+        if not np.any(mask):
+            continue
+
+        bin_scores = y_score_array[mask]
+        bin_true = y_true_array[mask]
+        ece += abs(float(bin_scores.mean()) - float(bin_true.mean())) * (
+            len(bin_scores) / total_count
+        )
+
+    return float(ece)
+
+
+def compute_unlabeled_proxy_metrics(
+    y_score: np.ndarray,
+    threshold: float,
+    threshold_band: float = 0.10,
+) -> dict[str, float]:
+    """Compute confidence and score-distribution proxies without labels."""
+
+    scores = np.clip(np.asarray(y_score, dtype=float), 0.0, 1.0)
+    entropy = -(
+        scores * np.log(np.clip(scores, 1e-6, 1.0))
+        + (1.0 - scores) * np.log(np.clip(1.0 - scores, 1e-6, 1.0))
+    )
+    near_threshold_rate = np.mean(np.abs(scores - threshold) <= threshold_band)
+
+    return {
+        "score_mean": float(scores.mean()),
+        "score_std": float(scores.std()),
+        "score_entropy": float(entropy.mean()),
+        "near_threshold_rate": float(near_threshold_rate),
+        "positive_rate_pred": float(np.mean(scores >= threshold)),
     }
 
 
@@ -386,6 +446,9 @@ def main() -> None:
 
     val_scores = calibrated_model.predict_proba(X_val)[:, 1]
     best_threshold, val_metrics = choose_threshold(y_val, val_scores)
+    val_proxy_metrics = compute_unlabeled_proxy_metrics(
+        val_scores, best_threshold
+    )
     logger.info(
         "Selected operating threshold %.4f based on validation F1.",
         best_threshold,
@@ -395,11 +458,16 @@ def main() -> None:
     test_metrics = compute_classification_metrics(
         y_test, test_scores, best_threshold
     )
+    test_proxy_metrics = compute_unlabeled_proxy_metrics(
+        test_scores, best_threshold
+    )
 
     baseline_profile = make_baseline_profile(train_df, feature_columns)
     baseline_profile["threshold"] = best_threshold
     baseline_profile["validation_metrics"] = val_metrics
     baseline_profile["test_metrics"] = test_metrics
+    baseline_profile["validation_proxy_metrics"] = val_proxy_metrics
+    baseline_profile["test_proxy_metrics"] = test_proxy_metrics
     baseline_profile["split"] = {
         "train_rows": int(len(train_df)),
         "val_rows": int(len(val_df)),

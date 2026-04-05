@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
 from app.monitoring.drift_job import run_drift_job
 from app.monitoring.quality_job import run_quality_job
@@ -23,6 +24,26 @@ class ScheduledJob:
     interval_sec: float
     runner: Callable[[], dict[str, Any]]
     next_run_at: float
+
+
+def resolve_segment_keys(args: argparse.Namespace) -> list[str | None]:
+    """Resolve scheduler target segments from CLI arguments and settings."""
+
+    if args.segment_key is not None:
+        return [args.segment_key]
+
+    segment_keys: list[str | None] = []
+    if (
+        settings.scheduler_include_global_segment
+        or not settings.monitoring_segments
+    ):
+        segment_keys.append(None)
+
+    for segment_key in settings.monitoring_segments:
+        if segment_key not in segment_keys:
+            segment_keys.append(segment_key)
+
+    return segment_keys
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -89,39 +110,43 @@ def build_jobs(args: argparse.Namespace) -> list[ScheduledJob]:
     start_at = time.monotonic()
     initial_offset = 0.0 if args.run_on_start else None
     jobs: list[ScheduledJob] = []
+    segment_keys = resolve_segment_keys(args)
 
-    if not args.skip_drift:
-        jobs.append(
-            ScheduledJob(
-                name="drift",
-                interval_sec=float(args.drift_interval_sec),
-                next_run_at=start_at
-                if initial_offset == 0.0
-                else start_at + float(args.drift_interval_sec),
-                runner=lambda: run_drift_job(
-                    window_size=int(args.drift_window_size),
-                    min_rows=int(args.drift_min_rows),
-                    segment_key=args.segment_key,
-                ),
-            )
-        )
+    for segment_key in segment_keys:
+        segment_suffix = "" if segment_key is None else f"[{segment_key}]"
 
-    if not args.skip_quality:
-        jobs.append(
-            ScheduledJob(
-                name="quality",
-                interval_sec=float(args.quality_interval_sec),
-                next_run_at=start_at
-                if initial_offset == 0.0
-                else start_at + float(args.quality_interval_sec),
-                runner=lambda: run_quality_job(
-                    window_size=int(args.quality_window_size),
-                    min_rows=int(args.quality_min_rows),
-                    baseline_source=args.quality_baseline_source,
-                    segment_key=args.segment_key,
-                ),
+        if not args.skip_drift:
+            jobs.append(
+                ScheduledJob(
+                    name=f"drift{segment_suffix}",
+                    interval_sec=float(args.drift_interval_sec),
+                    next_run_at=start_at
+                    if initial_offset == 0.0
+                    else start_at + float(args.drift_interval_sec),
+                    runner=lambda segment_key=segment_key: run_drift_job(
+                        window_size=int(args.drift_window_size),
+                        min_rows=int(args.drift_min_rows),
+                        segment_key=segment_key,
+                    ),
+                )
             )
-        )
+
+        if not args.skip_quality:
+            jobs.append(
+                ScheduledJob(
+                    name=f"quality{segment_suffix}",
+                    interval_sec=float(args.quality_interval_sec),
+                    next_run_at=start_at
+                    if initial_offset == 0.0
+                    else start_at + float(args.quality_interval_sec),
+                    runner=lambda segment_key=segment_key: run_quality_job(
+                        window_size=int(args.quality_window_size),
+                        min_rows=int(args.quality_min_rows),
+                        baseline_source=args.quality_baseline_source,
+                        segment_key=segment_key,
+                    ),
+                )
+            )
 
     return jobs
 
@@ -151,11 +176,11 @@ def run_scheduler(args: argparse.Namespace) -> None:
 
     logger.info(
         (
-            "Starting monitoring scheduler. jobs=%s segment_key=%s "
+            "Starting monitoring scheduler. jobs=%s target_segments=%s "
             "run_on_start=%s max_job_runs=%s"
         ),
         [job.name for job in jobs],
-        args.segment_key,
+        resolve_segment_keys(args),
         args.run_on_start,
         args.max_job_runs,
     )

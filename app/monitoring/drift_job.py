@@ -9,11 +9,19 @@ import joblib
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2_contingency, ks_2samp
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
+from app.monitoring.incidents import (
+    build_incident_key,
+    highest_severity,
+    sync_monitoring_incident,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
@@ -21,6 +29,13 @@ BASELINE_PATH = settings.baseline_path
 MODEL_PATH = settings.model_path
 
 logger = get_logger(__name__)
+
+UNIVARIATE_PVALUE_THRESHOLD = 0.05
+PSI_WARNING_THRESHOLD = 0.20
+PSI_CRITICAL_THRESHOLD = 0.35
+DOMAIN_AUC_WARNING_THRESHOLD = 0.65
+DOMAIN_AUC_CRITICAL_THRESHOLD = 0.75
+DOMAIN_PERMUTATIONS = 31
 
 
 def load_reference_data() -> pd.DataFrame:
@@ -150,6 +165,302 @@ def to_numeric_series(series: pd.Series) -> pd.Series:
     return cast(pd.Series, pd.to_numeric(series, errors="coerce"))
 
 
+def benjamini_hochberg_adjust(
+    pvalues: list[float | None],
+) -> list[float | None]:
+    """Adjust p-values with the Benjamini-Hochberg FDR procedure."""
+
+    valid = [
+        (index, float(value))
+        for index, value in enumerate(pvalues)
+        if value is not None
+    ]
+    adjusted: list[float | None] = [None] * len(pvalues)
+    if not valid:
+        return adjusted
+
+    sorted_valid = sorted(valid, key=lambda item: item[1])
+    total = len(sorted_valid)
+    running_min = 1.0
+
+    for rank, (original_index, pvalue) in reversed(
+        list(enumerate(sorted_valid, start=1))
+    ):
+        candidate = min(running_min, (pvalue * total) / rank)
+        running_min = candidate
+        adjusted[original_index] = float(min(candidate, 1.0))
+
+    return adjusted
+
+
+def build_drift_recommended_action(
+    severity: str, *, feature_name: str, detector_name: str
+) -> str:
+    """Return a concise operator action for one drift signal."""
+
+    if severity == "critical":
+        return (
+            "Review upstream data changes, inspect the affected segment, "
+            "collect fresh labels, and prepare rollback or retraining."
+        )
+    if severity == "warning":
+        return (
+            "Inspect recent windows and confirm whether the shift persists "
+            "before changing the model or threshold."
+        )
+    if (
+        feature_name == "__multivariate__"
+        and detector_name == "domain_classifier"
+    ):
+        return "No action required."
+    return "No action required."
+
+
+def classify_univariate_drift_severity(
+    *,
+    pvalue_adj: float | None,
+    effect_size: float | None,
+) -> str:
+    """Map adjusted p-values and effect size to a severity label."""
+
+    if effect_size is not None and effect_size >= PSI_CRITICAL_THRESHOLD:
+        return "critical"
+    if pvalue_adj is not None and pvalue_adj <= 0.01:
+        return "critical"
+    if effect_size is not None and effect_size >= PSI_WARNING_THRESHOLD:
+        return "warning"
+    if pvalue_adj is not None and pvalue_adj < UNIVARIATE_PVALUE_THRESHOLD:
+        return "warning"
+    return "none"
+
+
+def classify_domain_drift_severity(
+    auc_value: float, pvalue: float | None
+) -> str:
+    """Map domain-classifier AUC and permutation p-value to severity."""
+
+    if pvalue is None:
+        return "none"
+    if auc_value >= DOMAIN_AUC_CRITICAL_THRESHOLD and pvalue <= 0.05:
+        return "critical"
+    if auc_value >= DOMAIN_AUC_WARNING_THRESHOLD and pvalue <= 0.05:
+        return "warning"
+    return "none"
+
+
+def prepare_domain_classifier_frame(
+    reference_df: pd.DataFrame, current_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Prepare a joint encoded dataframe for domain-classifier drift."""
+
+    combined_df = pd.concat(
+        [reference_df, current_df], ignore_index=True
+    ).copy()
+
+    for column in combined_df.columns:
+        series = combined_df[column]
+        if pd.api.types.is_numeric_dtype(series):
+            numeric_series = pd.to_numeric(series, errors="coerce")
+            fill_value = (
+                float(numeric_series.median())
+                if not numeric_series.dropna().empty
+                else 0.0
+            )
+            combined_df[column] = numeric_series.fillna(fill_value)
+            continue
+
+        combined_df[column] = (
+            combined_df[column].where(combined_df[column].notna(), "__nan__")
+        ).astype(str)
+
+    encoded_df = pd.get_dummies(combined_df, dummy_na=False)
+    return encoded_df
+
+
+def fit_domain_classifier_auc(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    random_state: int = 42,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Fit a simple domain classifier and return test AUC and split indices."""
+
+    indices = np.arange(len(y))
+    train_idx, test_idx = train_test_split(
+        indices,
+        test_size=0.30,
+        random_state=random_state,
+        stratify=y,
+    )
+
+    model = LogisticRegression(
+        max_iter=500,
+        solver="liblinear",
+        random_state=random_state,
+    )
+    model.fit(X.iloc[train_idx], y[train_idx])
+    y_score = model.predict_proba(X.iloc[test_idx])[:, 1]
+    auc_value = float(roc_auc_score(y[test_idx], y_score))
+    return auc_value, np.asarray(train_idx), np.asarray(test_idx)
+
+
+def analyze_multivariate_drift(
+    reference_df: pd.DataFrame,
+    current_df: pd.DataFrame,
+    *,
+    random_state: int = 42,
+    permutations: int = DOMAIN_PERMUTATIONS,
+) -> dict[str, Any]:
+    """Detect multivariate drift with a domain classifier and permutations."""
+
+    if len(reference_df) < 20 or len(current_df) < 20:
+        return {
+            "feature_name": "__multivariate__",
+            "feature_type": "multivariate",
+            "ks_pvalue": None,
+            "chi2_pvalue": None,
+            "psi_value": None,
+            "detector_name": "domain_classifier",
+            "effect_size": None,
+            "pvalue_adj": None,
+            "severity": "none",
+            "recommended_action": "No action required.",
+            "drift_detected": False,
+            "details": {"status": "insufficient_data"},
+        }
+
+    encoded_df = prepare_domain_classifier_frame(reference_df, current_df)
+    labels = np.concatenate(
+        [
+            np.zeros(len(reference_df), dtype=int),
+            np.ones(len(current_df), dtype=int),
+        ]
+    )
+
+    try:
+        auc_value, train_idx, test_idx = fit_domain_classifier_auc(
+            encoded_df, labels, random_state=random_state
+        )
+    except ValueError as exc:
+        return {
+            "feature_name": "__multivariate__",
+            "feature_type": "multivariate",
+            "ks_pvalue": None,
+            "chi2_pvalue": None,
+            "psi_value": None,
+            "detector_name": "domain_classifier",
+            "effect_size": None,
+            "pvalue_adj": None,
+            "severity": "none",
+            "recommended_action": "No action required.",
+            "drift_detected": False,
+            "details": {"status": "classifier_failed", "error": str(exc)},
+        }
+
+    rng = np.random.default_rng(random_state)
+    permutation_aucs: list[float] = []
+    for _ in range(permutations):
+        permuted_labels = rng.permutation(labels)
+        if len(np.unique(permuted_labels[train_idx])) < 2:
+            permutation_aucs.append(0.5)
+            continue
+        if len(np.unique(permuted_labels[test_idx])) < 2:
+            permutation_aucs.append(0.5)
+            continue
+
+        model = LogisticRegression(
+            max_iter=500,
+            solver="liblinear",
+            random_state=random_state,
+        )
+        model.fit(encoded_df.iloc[train_idx], permuted_labels[train_idx])
+        permuted_score = model.predict_proba(encoded_df.iloc[test_idx])[:, 1]
+        permutation_aucs.append(
+            float(roc_auc_score(permuted_labels[test_idx], permuted_score))
+        )
+
+    pvalue = float(
+        (1 + sum(auc >= auc_value for auc in permutation_aucs))
+        / (len(permutation_aucs) + 1)
+    )
+    severity = classify_domain_drift_severity(auc_value, pvalue)
+    recommended_action = build_drift_recommended_action(
+        severity,
+        feature_name="__multivariate__",
+        detector_name="domain_classifier",
+    )
+
+    return {
+        "feature_name": "__multivariate__",
+        "feature_type": "multivariate",
+        "ks_pvalue": None,
+        "chi2_pvalue": None,
+        "psi_value": None,
+        "detector_name": "domain_classifier",
+        "effect_size": float(auc_value),
+        "pvalue_adj": float(pvalue),
+        "severity": severity,
+        "recommended_action": recommended_action,
+        "drift_detected": severity in {"warning", "critical"},
+        "details": {
+            "auc_value": float(auc_value),
+            "permutation_pvalue": float(pvalue),
+            "permutations": int(permutations),
+            "reference_rows": int(len(reference_df)),
+            "current_rows": int(len(current_df)),
+            "encoded_features": int(encoded_df.shape[1]),
+        },
+    }
+
+
+def apply_adjusted_pvalues(results: list[dict[str, Any]]) -> None:
+    """Adjust univariate p-values and normalize drift metadata in-place."""
+
+    raw_pvalues = [
+        (
+            float(item["ks_pvalue"])
+            if item.get("ks_pvalue") is not None
+            else float(item["chi2_pvalue"])
+            if item.get("chi2_pvalue") is not None
+            else None
+        )
+        for item in results
+    ]
+    adjusted_pvalues = benjamini_hochberg_adjust(raw_pvalues)
+
+    for item, adjusted_pvalue in zip(results, adjusted_pvalues, strict=False):
+        if item.get("detector_name") == "domain_classifier":
+            continue
+
+        item["detector_name"] = "univariate"
+        item["pvalue_adj"] = adjusted_pvalue
+        effect_size = item.get("psi_value")
+        if effect_size is None:
+            details = item.get("details", {})
+            if item["feature_type"] == "numeric":
+                effect_size = details.get("ks_statistic")
+            else:
+                effect_size = details.get("chi2_statistic")
+        item["effect_size"] = (
+            float(effect_size) if effect_size is not None else None
+        )
+        severity = classify_univariate_drift_severity(
+            pvalue_adj=adjusted_pvalue,
+            effect_size=(
+                float(item["effect_size"])
+                if item["effect_size"] is not None
+                else None
+            ),
+        )
+        item["severity"] = severity
+        item["recommended_action"] = build_drift_recommended_action(
+            severity,
+            feature_name=str(item["feature_name"]),
+            detector_name=str(item["detector_name"]),
+        )
+        item["drift_detected"] = severity in {"warning", "critical"}
+
+
 def calculate_numeric_psi(
     reference: pd.Series, current: pd.Series, bins: int = 10
 ) -> float | None:
@@ -245,6 +556,11 @@ def analyze_numeric_feature(
             "ks_pvalue": None,
             "chi2_pvalue": None,
             "psi_value": None,
+            "detector_name": "univariate",
+            "effect_size": None,
+            "pvalue_adj": None,
+            "severity": "none",
+            "recommended_action": "No action required.",
             "drift_detected": False,
             "details": {"status": "insufficient_data"},
         }
@@ -255,8 +571,13 @@ def analyze_numeric_feature(
     psi_value = calculate_numeric_psi(ref, cur)
     ks_stat = float(ks_result.statistic)
     ks_pvalue = float(ks_result.pvalue)
+    effect_size = psi_value if psi_value is not None else ks_stat
+    severity = classify_univariate_drift_severity(
+        pvalue_adj=ks_pvalue, effect_size=effect_size
+    )
     drift_detected = bool(
-        (ks_pvalue < 0.05) or ((psi_value is not None) and (psi_value >= 0.20))
+        (ks_pvalue < UNIVARIATE_PVALUE_THRESHOLD)
+        or ((psi_value is not None) and (psi_value >= PSI_WARNING_THRESHOLD))
     )
 
     return {
@@ -265,6 +586,15 @@ def analyze_numeric_feature(
         "ks_pvalue": float(ks_pvalue),
         "chi2_pvalue": None,
         "psi_value": psi_value,
+        "detector_name": "univariate",
+        "effect_size": effect_size,
+        "pvalue_adj": None,
+        "severity": severity,
+        "recommended_action": build_drift_recommended_action(
+            severity,
+            feature_name=feature_name,
+            detector_name="univariate",
+        ),
         "drift_detected": drift_detected,
         "details": {
             "ks_statistic": ks_stat,
@@ -293,6 +623,11 @@ def analyze_categorical_feature(
             "ks_pvalue": None,
             "chi2_pvalue": None,
             "psi_value": None,
+            "detector_name": "univariate",
+            "effect_size": None,
+            "pvalue_adj": None,
+            "severity": "none",
+            "recommended_action": "No action required.",
             "drift_detected": False,
             "details": {"status": "insufficient_data"},
         }
@@ -320,9 +655,13 @@ def analyze_categorical_feature(
         chi2_pvalue = float(chi2_result.pvalue)
 
     psi_value = calculate_categorical_psi(ref, cur)
+    effect_size = psi_value if psi_value is not None else chi2_stat
+    severity = classify_univariate_drift_severity(
+        pvalue_adj=chi2_pvalue, effect_size=effect_size
+    )
     drift_detected = bool(
-        (chi2_pvalue < 0.05)
-        or ((psi_value is not None) and (psi_value >= 0.20))
+        (chi2_pvalue < UNIVARIATE_PVALUE_THRESHOLD)
+        or ((psi_value is not None) and (psi_value >= PSI_WARNING_THRESHOLD))
     )
 
     top_ref = (
@@ -344,6 +683,15 @@ def analyze_categorical_feature(
         "ks_pvalue": None,
         "chi2_pvalue": float(chi2_pvalue),
         "psi_value": psi_value,
+        "detector_name": "univariate",
+        "effect_size": effect_size,
+        "pvalue_adj": None,
+        "severity": severity,
+        "recommended_action": build_drift_recommended_action(
+            severity,
+            feature_name=feature_name,
+            detector_name="univariate",
+        ),
         "drift_detected": drift_detected,
         "details": {
             "chi2_statistic": float(chi2_stat),
@@ -451,6 +799,11 @@ def insert_drift_metrics(
             ks_pvalue,
             chi2_pvalue,
             psi_value,
+            detector_name,
+            effect_size,
+            pvalue_adj,
+            severity,
+            recommended_action,
             drift_detected,
             details_json
         )
@@ -461,6 +814,11 @@ def insert_drift_metrics(
             :ks_pvalue,
             :chi2_pvalue,
             :psi_value,
+            :detector_name,
+            :effect_size,
+            :pvalue_adj,
+            :severity,
+            :recommended_action,
             :drift_detected,
             CAST(:details_json AS JSONB)
         )
@@ -475,6 +833,11 @@ def insert_drift_metrics(
             "ks_pvalue": item["ks_pvalue"],
             "chi2_pvalue": item["chi2_pvalue"],
             "psi_value": item["psi_value"],
+            "detector_name": item["detector_name"],
+            "effect_size": item["effect_size"],
+            "pvalue_adj": item["pvalue_adj"],
+            "severity": item["severity"],
+            "recommended_action": item["recommended_action"],
             "drift_detected": item["drift_detected"],
             "details_json": safe_json(item["details"]),
         }
@@ -592,14 +955,41 @@ def run_drift_job(
                 current=pd.Series(current_scores),
             )
         )
+        apply_adjusted_pvalues(results)
+        results.append(
+            analyze_multivariate_drift(reference_df, current_features_df)
+        )
 
         drifted = [item for item in results if item["drift_detected"]]
         insert_drift_metrics(engine, run_id, results)
 
+        feature_results = [
+            item
+            for item in results
+            if item["feature_name"] not in {"__score", "__multivariate__"}
+        ]
+        score_result = next(
+            (item for item in results if item["feature_name"] == "__score"),
+            None,
+        )
+        multivariate_result = next(
+            (
+                item
+                for item in results
+                if item["feature_name"] == "__multivariate__"
+            ),
+            None,
+        )
         top_drift = sorted(
-            results,
+            [
+                item
+                for item in feature_results
+                if item["effect_size"] is not None
+            ],
             key=lambda item: (
-                item["psi_value"] if item["psi_value"] is not None else -1.0
+                float(item["effect_size"])
+                if item["effect_size"] is not None
+                else -1.0
             ),
             reverse=True,
         )[:5]
@@ -613,23 +1003,62 @@ def run_drift_job(
         positive_rate_reference = float((reference_scores >= threshold).mean())
         drifted_features_count = len(drifted)
         total_features_count = len(results)
-        overall_drift = drifted_features_count >= 2 or any(
-            item["feature_name"] == "__score" and item["drift_detected"]
-            for item in drifted
+        overall_severity = highest_severity(
+            [str(item["severity"]) for item in results]
+        )
+        overall_drift = overall_severity in {"warning", "critical"}
+        recommended_action = next(
+            (
+                str(item["recommended_action"])
+                for item in results
+                if item["severity"] in {"critical", "warning"}
+            ),
+            "No action required.",
         )
 
         summary = {
             "reference_rows": int(len(reference_df)),
             "current_rows": int(len(current_df)),
-            "drifted_features": [item["feature_name"] for item in drifted],
+            "severity": overall_severity,
+            "recommended_action": recommended_action,
+            "adjustment_method": "benjamini-hochberg",
+            "drifted_features": [
+                item["feature_name"]
+                for item in drifted
+                if item["feature_name"] not in {"__score", "__multivariate__"}
+            ],
             "top_drift_by_psi": [
                 {
                     "feature_name": item["feature_name"],
                     "psi_value": item["psi_value"],
+                    "effect_size": item["effect_size"],
+                    "pvalue_adj": item["pvalue_adj"],
+                    "severity": item["severity"],
                     "drift_detected": item["drift_detected"],
                 }
                 for item in top_drift
             ],
+            "score_drift": (
+                {
+                    "effect_size": score_result["effect_size"],
+                    "pvalue_adj": score_result["pvalue_adj"],
+                    "severity": score_result["severity"],
+                    "drift_detected": score_result["drift_detected"],
+                }
+                if score_result is not None
+                else None
+            ),
+            "multivariate_drift": (
+                {
+                    "effect_size": multivariate_result["effect_size"],
+                    "pvalue_adj": multivariate_result["pvalue_adj"],
+                    "severity": multivariate_result["severity"],
+                    "drift_detected": multivariate_result["drift_detected"],
+                    "details": multivariate_result["details"],
+                }
+                if multivariate_result is not None
+                else None
+            ),
             "reference_positive_rate_pred": positive_rate_reference,
             "current_positive_rate_pred": positive_rate_current,
             "segment_key": segment_key,
@@ -648,12 +1077,29 @@ def run_drift_job(
         logger.info(
             (
                 "Drift job completed. run_id=%s drifted_features=%s "
-                "total_features=%s overall_drift=%s"
+                "total_features=%s overall_drift=%s severity=%s"
             ),
             run_id,
             drifted_features_count,
             total_features_count,
             overall_drift,
+            overall_severity,
+        )
+        sync_monitoring_incident(
+            engine,
+            incident_key=build_incident_key("drift", segment_key),
+            source_type="drift",
+            model_version=settings.model_version,
+            segment_key=segment_key,
+            severity=overall_severity,
+            title="Drift monitoring signal",
+            recommended_action=recommended_action,
+            summary={
+                "run_id": run_id,
+                "overall_drift": overall_drift,
+                **summary,
+            },
+            latest_run_id=run_id,
         )
         return {
             "run_id": run_id,
@@ -674,6 +1120,21 @@ def run_drift_job(
             total_features_count=0,
             overall_drift=False,
             summary={"error": str(exc)},
+        )
+        sync_monitoring_incident(
+            engine,
+            incident_key=build_incident_key("drift", segment_key),
+            source_type="drift",
+            model_version=settings.model_version,
+            segment_key=segment_key,
+            severity="critical",
+            title="Drift monitoring job failed",
+            recommended_action=(
+                "Check scheduler and job logs, then restore drift monitoring "
+                "before relying on the model."
+            ),
+            summary={"error": str(exc), "run_id": run_id},
+            latest_run_id=run_id,
         )
         raise
     finally:
