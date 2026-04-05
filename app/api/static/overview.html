@@ -360,6 +360,7 @@
               ["Started", formatDate(run.ts_started)],
               ["Finished", formatDate(run.ts_finished)],
               ["Window Size", run.window_size],
+              ["Severity", run.summary?.severity || "none"],
               ["Overall Drift", run.overall_drift ? "Yes" : "No"],
               ["Drifted Features", run.drifted_features_count],
               ["Segment", run.segment_key || "(none)"]
@@ -369,6 +370,8 @@
               ["Started", formatDate(run.ts_started)],
               ["Finished", formatDate(run.ts_finished)],
               ["Window Size", run.window_size],
+              ["Mode", run.summary?.evaluation_mode || "labeled"],
+              ["Severity", run.summary?.severity || "none"],
               ["Degraded Metrics", run.degraded_metrics_count],
               ["Labeled Rows", run.labeled_rows],
               ["Segment", run.segment_key || "(none)"]
@@ -387,6 +390,41 @@
               )
               .join("")}
           </div>
+        `;
+      }
+
+      function renderIncidents(incidents) {
+        if (!incidents.length) {
+          return '<div class="muted">No active incidents. Monitoring is currently quiet.</div>';
+        }
+
+        return `
+          <table>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Source</th>
+                <th>Segment</th>
+                <th>Title</th>
+                <th>Recommended Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${incidents
+                .map(
+                  (incident) => `
+                    <tr>
+                      <td><span class="pill">${incident.severity}</span></td>
+                      <td>${incident.source_type}</td>
+                      <td>${incident.segment_key || "(none)"}</td>
+                      <td>${incident.title}</td>
+                      <td>${incident.recommended_action}</td>
+                    </tr>
+                  `
+                )
+                .join("")}
+            </tbody>
+          </table>
         `;
       }
 
@@ -426,7 +464,7 @@
       function renderOverview(data) {
         const links = buildLinks();
         const attention = data.service_status === "attention";
-        const statusLabel = attention ? "Attention" : "Healthy";
+        const statusLabel = attention ? data.severity.toUpperCase() : "HEALTHY";
 
         appNode.className = "";
         appNode.innerHTML = `
@@ -465,6 +503,10 @@
                     <span class="label">API Status</span>
                     <span class="value" style="font-size: 22px;">${data.api_health.status}</span>
                   </div>
+                  <div class="mini-item">
+                    <span class="label">Active Incidents</span>
+                    <span class="value" style="font-size: 22px;">${data.active_incidents_count}</span>
+                  </div>
                 </div>
               </div>
             </aside>
@@ -494,6 +536,16 @@
 
             <article class="panel wide">
               <div class="section-title">
+                <h2>Recommended Action</h2>
+                <span>Current operator guidance</span>
+              </div>
+              <div class="run-box">
+                <div class="strong">${data.recommended_action || "No action required."}</div>
+              </div>
+            </article>
+
+            <article class="panel wide">
+              <div class="section-title">
                 <h2>Latest Drift Run</h2>
                 <span>${data.latest_drift_run ? `Run #${data.latest_drift_run.id}` : "No runs yet"}</span>
               </div>
@@ -506,6 +558,14 @@
                 <span>${data.latest_quality_run ? `Run #${data.latest_quality_run.id}` : "No runs yet"}</span>
               </div>
               ${renderRun(data.latest_quality_run, "quality")}
+            </article>
+
+            <article class="panel wide">
+              <div class="section-title">
+                <h2>Active Incidents</h2>
+                <span>Open monitoring signals with actions</span>
+              </div>
+              ${renderIncidents(data.active_incidents)}
             </article>
 
             <article class="panel wide">

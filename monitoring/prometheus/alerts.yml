@@ -44,25 +44,53 @@ groups:
 
   - name: ml-monitoring-jobs
     rules:
-      - alert: MlMonitoringDriftDetected
-        expr: max(ml_monitoring_drift_last_run_overall{job="ml-monitoring-api"}) > 0
-        for: 2m
+      - alert: MlMonitoringDriftRiskWarning
+        expr: sum(ml_monitoring_active_incidents{job="ml-monitoring-api", source_type="drift", severity="warning"}) > 0
+        for: 5m
         labels:
           severity: warning
           service: monitoring
         annotations:
-          summary: Drift was detected
-          description: The latest drift monitoring run reports overall drift.
+          summary: Drift monitoring raised a warning incident
+          description: Drift signals persisted long enough to open a warning-level incident. Review recent windows, inspect segments, and confirm whether the shift continues.
+          action: Inspect drift details in the overview API or Grafana, then decide whether label collection or mitigation is required.
+          runbook_url: http://localhost:8000/monitoring/overview
 
-      - alert: MlMonitoringQualityDegraded
-        expr: max(ml_monitoring_quality_last_run_degraded_metrics{job="ml-monitoring-api"}) > 0
+      - alert: MlMonitoringDriftRiskCritical
+        expr: sum(ml_monitoring_active_incidents{job="ml-monitoring-api", source_type="drift", severity="critical"}) > 0
         for: 2m
+        labels:
+          severity: critical
+          service: monitoring
+        annotations:
+          summary: Drift monitoring raised a critical incident
+          description: Drift severity is critical. Review upstream data changes immediately and prepare fallback, rollback, or retraining actions.
+          action: Escalate to the model owner and inspect the incident timeline before automated decisions continue.
+          runbook_url: http://localhost:8000/monitoring/incidents
+
+      - alert: MlMonitoringQualityRiskWarning
+        expr: sum(ml_monitoring_active_incidents{job="ml-monitoring-api", source_type="quality", severity="warning"}) > 0
+        for: 5m
         labels:
           severity: warning
           service: monitoring
         annotations:
-          summary: Quality degradation was detected
-          description: The latest quality monitoring run reports at least one degraded metric.
+          summary: Quality monitoring raised a warning incident
+          description: Labeled degradation or proxy risk was detected and stayed active. Collect labels, inspect score drift, and confirm the next windows.
+          action: Review the recommended action in the overview API before changing the model or threshold.
+          runbook_url: http://localhost:8000/monitoring/overview
+
+      - alert: MlMonitoringQualityRiskCritical
+        expr: sum(ml_monitoring_active_incidents{job="ml-monitoring-api", source_type="quality", severity="critical"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: monitoring
+        annotations:
+          summary: Quality monitoring raised a critical incident
+          description: Quality degradation is critical. Investigate labels, calibration, thresholding, and mitigation options immediately.
+          action: Escalate to the model owner and prepare rollback, recalibration, or retraining.
+          runbook_url: http://localhost:8000/monitoring/incidents
 
       - alert: MlMonitoringDriftJobFailed
         expr: max(ml_monitoring_drift_last_run_status{job="ml-monitoring-api", status="failed"}) > 0

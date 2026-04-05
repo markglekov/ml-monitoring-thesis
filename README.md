@@ -1,15 +1,17 @@
 # ML Monitoring Thesis
 
-End-to-end ML monitoring prototype for a binary classification service. The project covers model training, online inference, delayed labels, drift and quality monitoring, alerting, and a small overview UI on top of the monitoring data.
+End-to-end ML monitoring prototype for a binary classification service. The project covers model training, online inference, delayed labels, multilevel drift and quality monitoring, alerting, incident traceability, and a small overview UI on top of the monitoring data.
 
 ## What Is Included
 
 - `FastAPI` inference API with request logging to PostgreSQL
 - Offline training pipeline for the Bank Marketing dataset
 - Delayed labels ingestion and quality monitoring
-- Drift monitoring over recent inference windows
+- Drift monitoring with univariate and multivariate detectors
+- Blind-period quality monitoring with proxy signals
 - Prometheus, Grafana, and Alertmanager integration
 - SMTP email relay for alert delivery
+- Monitoring incidents with recommended actions
 - Overview API and lightweight UI for the latest monitoring state
 - Unit and integration tests
 
@@ -81,6 +83,7 @@ POSTGRES_PORT=55432 docker compose up -d --build
 - Overview UI: `GET /overview`
 - Latest drift runs: `GET /monitoring/drift/runs`
 - Latest quality runs: `GET /monitoring/quality/runs`
+- Monitoring incidents: `GET /monitoring/incidents`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 - Alertmanager: `http://localhost:9093`
@@ -210,6 +213,9 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job --window-size
 ```
 
 The scheduler service can run both jobs continuously through Docker Compose.
+Set `MONITORING_SEGMENTS=segment_a,segment_b` to let the scheduler fan out
+the same jobs across multiple monitored segments, optionally together with the
+global run controlled by `SCHEDULER_INCLUDE_GLOBAL_SEGMENT`.
 
 For reproducible experiment scenarios and expected outcomes, see
 [`docs/experiments.md`](docs/experiments.md).

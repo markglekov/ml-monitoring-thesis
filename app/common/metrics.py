@@ -116,12 +116,31 @@ QUALITY_LAST_METRIC_DELTA = Gauge(
     ["model_version", "metric_name"],
 )
 
+ACTIVE_INCIDENTS = Gauge(
+    "ml_monitoring_active_incidents",
+    "Number of active monitoring incidents grouped by source and severity.",
+    ["model_version", "source_type", "severity"],
+)
+
+OVERVIEW_SEVERITY = Gauge(
+    "ml_monitoring_overview_severity",
+    "One-hot overview severity derived from active monitoring incidents.",
+    ["model_version", "severity"],
+)
+
 KNOWN_RUN_STATUSES: tuple[
     Literal["running"],
     Literal["completed"],
+    Literal["completed_proxy"],
     Literal["failed"],
     Literal["skipped_insufficient_data"],
-] = ("running", "completed", "failed", "skipped_insufficient_data")
+] = (
+    "running",
+    "completed",
+    "completed_proxy",
+    "failed",
+    "skipped_insufficient_data",
+)
 
 
 def record_http_request(
@@ -209,6 +228,8 @@ def _clear_monitoring_gauges(model_version: str) -> None:
     QUALITY_LAST_METRIC_VALUE.clear()
     QUALITY_LAST_METRIC_BASELINE.clear()
     QUALITY_LAST_METRIC_DELTA.clear()
+    ACTIVE_INCIDENTS.clear()
+    OVERVIEW_SEVERITY.clear()
 
     _refresh_status_gauge(
         DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown"
@@ -226,6 +247,15 @@ def _clear_monitoring_gauges(model_version: str) -> None:
         0.0
     )
     QUALITY_LAST_RUN_LABELED_ROWS.labels(model_version=model_version).set(0.0)
+    OVERVIEW_SEVERITY.labels(model_version=model_version, severity="none").set(
+        1.0
+    )
+    OVERVIEW_SEVERITY.labels(
+        model_version=model_version, severity="warning"
+    ).set(0.0)
+    OVERVIEW_SEVERITY.labels(
+        model_version=model_version, severity="critical"
+    ).set(0.0)
 
 
 def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
@@ -239,6 +269,7 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             drifted_features_count,
             overall_drift
         FROM monitoring_runs
+        WHERE model_version = :model_version
         ORDER BY ts_started DESC, id DESC
         LIMIT 1
         """
@@ -252,6 +283,7 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             degraded_metrics_count,
             labeled_rows
         FROM quality_runs
+        WHERE model_version = :model_version
         ORDER BY ts_started DESC, id DESC
         LIMIT 1
         """
@@ -264,7 +296,7 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             FROM quality_runs
             WHERE
                 model_version = :model_version
-                AND status = 'completed'
+                AND status IN ('completed', 'completed_proxy')
             ORDER BY ts_started DESC, id DESC
             LIMIT 1
         )
@@ -278,13 +310,40 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
         """
     )
 
+    incident_counts_query = text(
+        """
+        SELECT
+            source_type,
+            severity,
+            COUNT(*) AS total
+        FROM monitoring_incidents
+        WHERE status = 'open' AND model_version = :model_version
+        GROUP BY source_type, severity
+        """
+    )
+
     with engine.connect() as connection:
-        drift_row = connection.execute(drift_query).mappings().first()
-        quality_row = connection.execute(quality_query).mappings().first()
+        drift_row = (
+            connection.execute(drift_query, {"model_version": model_version})
+            .mappings()
+            .first()
+        )
+        quality_row = (
+            connection.execute(quality_query, {"model_version": model_version})
+            .mappings()
+            .first()
+        )
         quality_metric_rows = (
             connection.execute(
                 quality_metrics_query,
                 {"model_version": model_version},
+            )
+            .mappings()
+            .all()
+        )
+        incident_rows = (
+            connection.execute(
+                incident_counts_query, {"model_version": model_version}
             )
             .mappings()
             .all()
@@ -299,6 +358,8 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
     QUALITY_LAST_METRIC_VALUE.clear()
     QUALITY_LAST_METRIC_BASELINE.clear()
     QUALITY_LAST_METRIC_DELTA.clear()
+    ACTIVE_INCIDENTS.clear()
+    OVERVIEW_SEVERITY.clear()
 
     if drift_row is None and quality_row is None:
         _clear_monitoring_gauges(model_version=model_version)
@@ -384,6 +445,27 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             QUALITY_LAST_METRIC_DELTA.labels(
                 model_version=model_version, metric_name=metric_name
             ).set(float(delta_value))
+
+    overview_severity = "none"
+    for incident_row in incident_rows:
+        source_type = str(incident_row["source_type"])
+        severity = str(incident_row["severity"])
+        total = float(incident_row["total"] or 0)
+        ACTIVE_INCIDENTS.labels(
+            model_version=model_version,
+            source_type=source_type,
+            severity=severity,
+        ).set(total)
+        if severity == "critical":
+            overview_severity = "critical"
+        elif severity == "warning" and overview_severity != "critical":
+            overview_severity = "warning"
+
+    for severity in ["none", "warning", "critical"]:
+        OVERVIEW_SEVERITY.labels(
+            model_version=model_version,
+            severity=severity,
+        ).set(1.0 if severity == overview_severity else 0.0)
 
 
 def render_metrics() -> bytes:

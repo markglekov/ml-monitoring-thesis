@@ -221,11 +221,41 @@ def test_monitoring_overview_marks_attention_on_quality_degradation(
             status="completed",
             labeled_rows=80,
             degraded_metrics_count=2,
-            summary={"degraded_metrics": ["f1", "roc_auc"]},
+            summary={
+                "degraded_metrics": ["f1", "roc_auc"],
+                "recommended_action": "Inspect labeled degradation.",
+            },
         ),
     )
     monkeypatch.setattr(main, "get_top_segments", lambda engine: [])
+    monkeypatch.setattr(
+        main,
+        "get_active_incident_responses",
+        lambda engine: [
+            main.MonitoringIncidentResponse(
+                id=3,
+                incident_key="quality:__global__",
+                source_type="quality",
+                model_version=main.settings.model_version,
+                segment_key=None,
+                status="open",
+                severity="critical",
+                title="Quality degradation detected",
+                recommended_action="Inspect labeled degradation.",
+                summary={"severity": "critical"},
+                latest_run_id=2,
+                acknowledged_by=None,
+                mitigation_taken=None,
+                ts_opened=datetime.now(UTC),
+                ts_updated=datetime.now(UTC),
+                ts_resolved=None,
+            )
+        ],
+    )
 
     response = main.get_monitoring_overview_payload(main.app)
 
     assert response.service_status == "attention"
+    assert response.severity == "critical"
+    assert response.active_incidents_count == 1
+    assert response.recommended_action == "Inspect labeled degradation."

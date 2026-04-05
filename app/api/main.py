@@ -8,7 +8,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import joblib
 import numpy as np
@@ -29,6 +29,11 @@ from app.common.metrics import (
     record_prediction,
     refresh_monitoring_gauges,
     render_metrics,
+)
+from app.monitoring.incidents import (
+    get_active_incidents,
+    list_monitoring_incidents,
+    severity_rank,
 )
 
 logger = get_logger(__name__)
@@ -155,11 +160,39 @@ class MonitoringOverviewResponse(BaseModel):
     generated_at: datetime
     model_version: str
     service_status: Literal["ok", "attention"]
+    severity: Literal["none", "warning", "critical"]
+    active_incidents_count: int
+    recommended_action: str | None
     api_health: dict[str, Any]
     data_snapshot: OverviewDataSnapshotResponse
     latest_drift_run: DriftRunResponse | None
     latest_quality_run: QualityRunResponse | None
+    active_incidents: list[MonitoringIncidentResponse]
     top_segments: list[OverviewSegmentResponse]
+
+
+class MonitoringIncidentResponse(BaseModel):
+    """One active or historical monitoring incident."""
+
+    id: int
+    incident_key: str
+    source_type: str
+    model_version: str
+    segment_key: str | None
+    status: str
+    severity: str
+    title: str
+    recommended_action: str
+    summary: dict[str, Any] | None
+    latest_run_id: int | None
+    acknowledged_by: str | None
+    mitigation_taken: str | None
+    ts_opened: datetime
+    ts_updated: datetime
+    ts_resolved: datetime | None
+
+
+MonitoringOverviewResponse.model_rebuild()
 
 
 def to_native(value: Any) -> Any:
@@ -273,6 +306,18 @@ def validate_limit(limit: int) -> None:
     if limit <= 0 or limit > 100:
         raise HTTPException(
             status_code=422, detail="limit must be between 1 and 100"
+        )
+
+
+def validate_incident_status(status: str | None) -> None:
+    """Validate the optional incident status filter."""
+
+    if status is None:
+        return
+    if status not in {"open", "resolved"}:
+        raise HTTPException(
+            status_code=422,
+            detail="status must be one of: open, resolved",
         )
 
 
@@ -567,6 +612,48 @@ def list_quality_runs(
     ]
 
 
+def list_incident_responses(
+    engine: Engine,
+    limit: int,
+    status: str | None = None,
+    segment_key: str | None = None,
+) -> list[MonitoringIncidentResponse]:
+    """List recent monitoring incidents with optional filters."""
+
+    rows = list_monitoring_incidents(
+        engine,
+        limit=limit,
+        status=status,
+        segment_key=segment_key,
+    )
+
+    return [
+        MonitoringIncidentResponse(
+            id=int(row["id"]),
+            incident_key=str(row["incident_key"]),
+            source_type=str(row["source_type"]),
+            model_version=str(row["model_version"]),
+            segment_key=row["segment_key"],
+            status=str(row["status"]),
+            severity=str(row["severity"]),
+            title=str(row["title"]),
+            recommended_action=str(row["recommended_action"]),
+            summary=parse_json_object(row.get("summary_json")),
+            latest_run_id=(
+                int(row["latest_run_id"])
+                if row.get("latest_run_id") is not None
+                else None
+            ),
+            acknowledged_by=row.get("acknowledged_by"),
+            mitigation_taken=row.get("mitigation_taken"),
+            ts_opened=row["ts_opened"],
+            ts_updated=row["ts_updated"],
+            ts_resolved=row.get("ts_resolved"),
+        )
+        for row in rows
+    ]
+
+
 def get_latest_drift_run(engine: Engine) -> DriftRunResponse | None:
     """Return the latest drift run if it exists."""
 
@@ -674,6 +761,40 @@ def get_top_segments(
     ]
 
 
+def get_active_incident_responses(
+    engine: Engine, limit: int = 10
+) -> list[MonitoringIncidentResponse]:
+    """Return currently open incidents ordered by severity and freshness."""
+
+    rows = get_active_incidents(engine)[:limit]
+
+    return [
+        MonitoringIncidentResponse(
+            id=int(row["id"]),
+            incident_key=str(row["incident_key"]),
+            source_type=str(row["source_type"]),
+            model_version=str(row["model_version"]),
+            segment_key=row["segment_key"],
+            status=str(row["status"]),
+            severity=str(row["severity"]),
+            title=str(row["title"]),
+            recommended_action=str(row["recommended_action"]),
+            summary=parse_json_object(row.get("summary_json")),
+            latest_run_id=(
+                int(row["latest_run_id"])
+                if row.get("latest_run_id") is not None
+                else None
+            ),
+            acknowledged_by=row.get("acknowledged_by"),
+            mitigation_taken=row.get("mitigation_taken"),
+            ts_opened=row["ts_opened"],
+            ts_updated=row["ts_updated"],
+            ts_resolved=row.get("ts_resolved"),
+        )
+        for row in rows
+    ]
+
+
 def get_monitoring_overview_payload(
     app: FastAPI,
 ) -> MonitoringOverviewResponse:
@@ -685,8 +806,27 @@ def get_monitoring_overview_payload(
     latest_drift_run = get_latest_drift_run(engine)
     latest_quality_run = get_latest_quality_run(engine)
     top_segments = get_top_segments(engine)
+    active_incidents = get_active_incident_responses(engine)
 
     service_status: Literal["ok", "attention"] = "ok"
+    severity: Literal["none", "warning", "critical"] = "none"
+    recommended_action: str | None = None
+
+    if active_incidents:
+        top_incident = max(
+            active_incidents,
+            key=lambda item: severity_rank(item.severity),
+        )
+        severity = cast(
+            Literal["none", "warning", "critical"],
+            (
+                top_incident.severity
+                if top_incident.severity in {"none", "warning", "critical"}
+                else "warning"
+            ),
+        )
+        recommended_action = top_incident.recommended_action
+
     if (
         latest_drift_run is None
         or latest_quality_run is None
@@ -694,15 +834,38 @@ def get_monitoring_overview_payload(
         or latest_quality_run.degraded_metrics_count > 0
     ):
         service_status = "attention"
+        if severity == "none":
+            severity = "warning"
+
+    if severity != "none":
+        service_status = "attention"
+
+    if recommended_action is None:
+        if latest_quality_run and latest_quality_run.summary:
+            recommended_action = latest_quality_run.summary.get(
+                "recommended_action"
+            )
+        if (
+            recommended_action is None
+            and latest_drift_run
+            and latest_drift_run.summary
+        ):
+            recommended_action = latest_drift_run.summary.get(
+                "recommended_action"
+            )
 
     return MonitoringOverviewResponse(
         generated_at=datetime.now(UTC),
         model_version=settings.model_version,
         service_status=service_status,
+        severity=severity,
+        active_incidents_count=len(active_incidents),
+        recommended_action=recommended_action,
         api_health=api_health,
         data_snapshot=data_snapshot,
         latest_drift_run=latest_drift_run,
         latest_quality_run=latest_quality_run,
+        active_incidents=active_incidents,
         top_segments=top_segments,
     )
 
@@ -1087,4 +1250,34 @@ def get_quality_runs(
         logger.exception("Failed to fetch quality runs.")
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch quality runs: {exc}"
+        ) from exc
+
+
+@app.get(
+    "/monitoring/incidents",
+    response_model=list[MonitoringIncidentResponse],
+)
+def get_monitoring_incidents(
+    limit: int = 20,
+    status: str | None = "open",
+    segment_key: str | None = None,
+) -> list[MonitoringIncidentResponse]:
+    """Return recent monitoring incidents for operators and dashboards."""
+
+    validate_limit(limit)
+    validate_incident_status(status)
+    engine = get_engine(app)
+
+    try:
+        return list_incident_responses(
+            engine=engine,
+            limit=limit,
+            status=status,
+            segment_key=segment_key,
+        )
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to fetch monitoring incidents.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch monitoring incidents: {exc}",
         ) from exc
