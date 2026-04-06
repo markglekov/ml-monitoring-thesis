@@ -461,23 +461,17 @@ def test_refresh_monitoring_gauges_exports_segment_metrics(
         in exposition
     )
     assert (
-        "ml_monitoring_quality_segment_last_run_status"(
-            '{model_version="bank_marketing_v1",segment_key="segment-a",'
-            'status="completed_proxy"} 1.0'
-        )
-        in exposition
+        "ml_monitoring_quality_segment_last_run_status"
+        '{model_version="bank_marketing_v1",segment_key="segment-a",'
+        'status="completed_proxy"} 1.0' in exposition
     )
     assert (
-        "ml_monitoring_quality_segment_last_metric_value"(
-            '{metric_name="score_psi",model_version="bank_marketing_v1",'
-            'segment_key="segment-a"} 0.31'
-        )
-        in exposition
+        "ml_monitoring_quality_segment_last_metric_value"
+        '{metric_name="score_psi",model_version="bank_marketing_v1",'
+        'segment_key="segment-a"} 0.31' in exposition
     )
     assert (
-        "ml_monitoring_active_incidents_by_segment"(
-            '{model_version="bank_marketing_v1",segment_key="segment-a",'
-            'severity="warning",source_type="quality"} 1.0'
-        )
-        in exposition
+        "ml_monitoring_active_incidents_by_segment"
+        '{model_version="bank_marketing_v1",segment_key="segment-a",'
+        'severity="warning",source_type="quality"} 1.0' in exposition
     )
