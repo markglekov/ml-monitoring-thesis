@@ -88,6 +88,14 @@ POSTGRES_PORT=55432 docker compose up -d --build
 - Grafana: `http://localhost:3000`
 - Alertmanager: `http://localhost:9093`
 
+Grafana dashboards:
+
+- Executive overview: `http://localhost:3000/d/ml-monitoring-overview`
+- Drift analysis: `http://localhost:3000/d/ml-monitoring-drift`
+- Quality and calibration: `http://localhost:3000/d/ml-monitoring-quality`
+- Blind-period proxy signals: `http://localhost:3000/d/ml-monitoring-proxy`
+- Segments and incidents: `http://localhost:3000/d/ml-monitoring-segments`
+
 ## Development Workflow
 
 Install or update the local environment:
@@ -188,6 +196,11 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
 - Overview UI: `http://localhost:8000/overview`
 - Overview JSON: `http://localhost:8000/monitoring/overview`
 - Grafana: `http://localhost:3000`
+- Executive dashboard: `http://localhost:3000/d/ml-monitoring-overview`
+- Drift dashboard: `http://localhost:3000/d/ml-monitoring-drift`
+- Quality dashboard: `http://localhost:3000/d/ml-monitoring-quality`
+- Proxy dashboard: `http://localhost:3000/d/ml-monitoring-proxy`
+- Segments dashboard: `http://localhost:3000/d/ml-monitoring-segments`
 - Prometheus: `http://localhost:9090`
 - Alertmanager: `http://localhost:9093`
 
@@ -216,6 +229,11 @@ The scheduler service can run both jobs continuously through Docker Compose.
 Set `MONITORING_SEGMENTS=segment_a,segment_b` to let the scheduler fan out
 the same jobs across multiple monitored segments, optionally together with the
 global run controlled by `SCHEDULER_INCLUDE_GLOBAL_SEGMENT`.
+
+Grafana is provisioned with both Prometheus and PostgreSQL datasources. The
+overview and time-series panels read from Prometheus, while incident timelines,
+segment tables, and latest run details read from PostgreSQL. This split keeps
+alerting simple and also makes the demo dashboards more useful for defense.
 
 For reproducible experiment scenarios and expected outcomes, see
 [`docs/experiments.md`](docs/experiments.md).

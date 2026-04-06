@@ -1,0 +1,346 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "No"
+                },
+                "1": {
+                  "color": "red",
+                  "text": "Yes"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "max by (segment_key) (ml_monitoring_drift_segment_last_run_overall{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Overall Drift By Segment",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "max by (segment_key) (ml_monitoring_quality_segment_last_run_degraded_metrics{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Degraded Metrics By Segment",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 200
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "max by (segment_key) (ml_monitoring_quality_segment_last_run_labeled_rows{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Labeled Rows By Segment",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (segment_key, severity) (ml_monitoring_active_incidents_by_segment{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "legendFormat": "{{segment_key}} / {{severity}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Incidents By Segment And Severity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_drift AS (SELECT COALESCE(segment_key, '__global__') AS segment_key, status AS drift_status, drifted_features_count, total_features_count, overall_drift, COALESCE(summary_json ->> 'severity', CASE WHEN overall_drift THEN 'warning' ELSE 'none' END) AS drift_severity, ROW_NUMBER() OVER (PARTITION BY COALESCE(segment_key, '__global__') ORDER BY ts_started DESC, id DESC) AS rn FROM monitoring_runs WHERE model_version = '${model_version}'), latest_quality AS (SELECT COALESCE(segment_key, '__global__') AS segment_key, status AS quality_status, labeled_rows, degraded_metrics_count, COALESCE(summary_json ->> 'severity', CASE WHEN degraded_metrics_count > 0 THEN 'warning' ELSE 'none' END) AS quality_severity, ROW_NUMBER() OVER (PARTITION BY COALESCE(segment_key, '__global__') ORDER BY ts_started DESC, id DESC) AS rn FROM quality_runs WHERE model_version = '${model_version}'), segments AS (SELECT DISTINCT COALESCE(segment_key, '__global__') AS segment_key FROM monitoring_runs WHERE model_version = '${model_version}' UNION SELECT DISTINCT COALESCE(segment_key, '__global__') AS segment_key FROM quality_runs WHERE model_version = '${model_version}' UNION SELECT DISTINCT COALESCE(segment_key, '__global__') AS segment_key FROM monitoring_incidents WHERE model_version = '${model_version}') SELECT segments.segment_key, latest_drift.drift_status, latest_drift.drift_severity, latest_drift.drifted_features_count, latest_quality.quality_status, latest_quality.quality_severity, latest_quality.degraded_metrics_count, latest_quality.labeled_rows FROM segments LEFT JOIN latest_drift ON latest_drift.segment_key = segments.segment_key AND latest_drift.rn = 1 LEFT JOIN latest_quality ON latest_quality.segment_key = segments.segment_key AND latest_quality.rn = 1 ORDER BY segments.segment_key ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Segment Monitoring Snapshot",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(segment_key, '__global__') AS segment_key, source_type, severity, status, title, recommended_action, acknowledged_by, mitigation_taken, ts_opened, ts_updated, ts_resolved FROM monitoring_incidents WHERE model_version = '${model_version}' ORDER BY CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC, ts_updated DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Incident Timeline",
+      "type": "table"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "style": "dark",
+  "tags": [
+    "ml-monitoring",
+    "segments",
+    "incidents"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "bank_marketing_v1",
+          "value": "bank_marketing_v1"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ml_monitoring_overview_severity, model_version)",
+        "label": "Model Version",
+        "name": "model_version",
+        "options": [],
+        "query": {
+          "query": "label_values(ml_monitoring_overview_severity, model_version)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "ML Monitoring Segments And Incidents",
+  "uid": "ml-monitoring-segments",
+  "version": 1,
+  "weekStart": ""
+}

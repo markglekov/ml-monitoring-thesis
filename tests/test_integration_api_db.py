@@ -317,3 +317,167 @@ def test_refresh_monitoring_gauges_reads_latest_run_rows(
         '{metric_name="f1",model_version="bank_marketing_v1"} 0.53'
         in exposition
     )
+
+
+@pytest.mark.integration
+def test_refresh_monitoring_gauges_exports_segment_metrics(
+    postgres_engine,
+) -> None:
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO monitoring_runs (
+                    model_version, window_size, segment_key, status,
+                    drifted_features_count, total_features_count,
+                    overall_drift, summary_json
+                )
+                VALUES (
+                    :model_version,
+                    300,
+                    'segment-a',
+                    'completed',
+                    2,
+                    10,
+                    true,
+                    CAST(:summary_json AS JSONB)
+                )
+                """
+            ),
+            {
+                "model_version": main.settings.model_version,
+                "summary_json": '{"severity": "warning"}',
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO quality_runs (
+                    model_version, window_size, segment_key, status,
+                    labeled_rows, degraded_metrics_count, summary_json
+                )
+                VALUES (
+                    :model_version,
+                    300,
+                    'segment-a',
+                    'completed_proxy',
+                    0,
+                    1,
+                    CAST(:summary_json AS JSONB)
+                )
+                """
+            ),
+            {
+                "model_version": main.settings.model_version,
+                "summary_json": '{"severity": "warning"}',
+            },
+        )
+        quality_run_id = connection.execute(
+            text(
+                """
+                SELECT id
+                FROM quality_runs
+                WHERE segment_key = 'segment-a'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+        ).scalar_one()
+        connection.execute(
+            text(
+                """
+                INSERT INTO quality_metrics (
+                    run_id,
+                    segment_key,
+                    metric_name,
+                    metric_value,
+                    baseline_value,
+                    delta_value,
+                    detector_name,
+                    severity,
+                    degradation_detected,
+                    details_json
+                )
+                VALUES (
+                    :run_id,
+                    'segment-a',
+                    'score_psi',
+                    0.31,
+                    0.02,
+                    0.29,
+                    'proxy',
+                    'warning',
+                    true,
+                    CAST(:details_json AS JSONB)
+                )
+                """
+            ),
+            {"run_id": quality_run_id, "details_json": '{"ok": true}'},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO monitoring_incidents (
+                    incident_key,
+                    source_type,
+                    model_version,
+                    segment_key,
+                    status,
+                    severity,
+                    title,
+                    recommended_action,
+                    summary_json,
+                    latest_run_id
+                )
+                VALUES (
+                    'quality:segment-a',
+                    'quality',
+                    :model_version,
+                    'segment-a',
+                    'open',
+                    'warning',
+                    'Proxy quality warning',
+                    'Collect labels and review the segment.',
+                    CAST(:summary_json AS JSONB),
+                    :latest_run_id
+                )
+                """
+            ),
+            {
+                "model_version": main.settings.model_version,
+                "summary_json": '{"metric_name": "score_psi"}',
+                "latest_run_id": quality_run_id,
+            },
+        )
+
+    metrics.refresh_monitoring_gauges(
+        postgres_engine, model_version=main.settings.model_version
+    )
+    exposition = metrics.render_metrics().decode("utf-8")
+
+    assert (
+        "ml_monitoring_drift_segment_last_run_drifted_features"
+        '{model_version="bank_marketing_v1",segment_key="segment-a"} 2.0'
+        in exposition
+    )
+    assert (
+        "ml_monitoring_quality_segment_last_run_status"(
+            '{model_version="bank_marketing_v1",segment_key="segment-a",'
+            'status="completed_proxy"} 1.0'
+        )
+        in exposition
+    )
+    assert (
+        "ml_monitoring_quality_segment_last_metric_value"(
+            '{metric_name="score_psi",model_version="bank_marketing_v1",'
+            'segment_key="segment-a"} 0.31'
+        )
+        in exposition
+    )
+    assert (
+        "ml_monitoring_active_incidents_by_segment"(
+            '{model_version="bank_marketing_v1",segment_key="segment-a",'
+            'severity="warning",source_type="quality"} 1.0'
+        )
+        in exposition
+    )

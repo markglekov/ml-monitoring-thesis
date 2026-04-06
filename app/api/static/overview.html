@@ -336,10 +336,16 @@
 
       function buildLinks() {
         const { protocol, hostname } = window.location;
+        const grafanaBase = `${protocol}//${hostname}:3000`;
         return {
           docs: `${protocol}//${hostname}:8000/docs`,
           metrics: `${protocol}//${hostname}:8000/metrics`,
-          grafana: `${protocol}//${hostname}:3000`,
+          grafana: grafanaBase,
+          grafanaOverview: `${grafanaBase}/d/ml-monitoring-overview`,
+          grafanaDrift: `${grafanaBase}/d/ml-monitoring-drift`,
+          grafanaQuality: `${grafanaBase}/d/ml-monitoring-quality`,
+          grafanaProxy: `${grafanaBase}/d/ml-monitoring-proxy`,
+          grafanaSegments: `${grafanaBase}/d/ml-monitoring-segments`,
           prometheus: `${protocol}//${hostname}:9090`,
           alertmanager: `${protocol}//${hostname}:9093`
         };
@@ -480,6 +486,11 @@
                 <a href="${links.docs}" target="_blank" rel="noreferrer">API Docs</a>
                 <a href="${links.metrics}" target="_blank" rel="noreferrer">Metrics</a>
                 <a href="${links.grafana}" target="_blank" rel="noreferrer">Grafana</a>
+                <a href="${links.grafanaOverview}" target="_blank" rel="noreferrer">Overview Dashboard</a>
+                <a href="${links.grafanaDrift}" target="_blank" rel="noreferrer">Drift Dashboard</a>
+                <a href="${links.grafanaQuality}" target="_blank" rel="noreferrer">Quality Dashboard</a>
+                <a href="${links.grafanaProxy}" target="_blank" rel="noreferrer">Proxy Dashboard</a>
+                <a href="${links.grafanaSegments}" target="_blank" rel="noreferrer">Segments Dashboard</a>
                 <a href="${links.prometheus}" target="_blank" rel="noreferrer">Prometheus</a>
                 <a href="${links.alertmanager}" target="_blank" rel="noreferrer">Alertmanager</a>
               </div>

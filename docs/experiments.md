@@ -224,6 +224,11 @@ Prometheus / Grafana:
 
 - `http://localhost:9090`
 - `http://localhost:3000`
+- `http://localhost:3000/d/ml-monitoring-overview`
+- `http://localhost:3000/d/ml-monitoring-drift`
+- `http://localhost:3000/d/ml-monitoring-quality`
+- `http://localhost:3000/d/ml-monitoring-proxy`
+- `http://localhost:3000/d/ml-monitoring-segments`
 
 PostgreSQL:
 
@@ -244,3 +249,19 @@ FROM quality_runs
 ORDER BY id DESC
 LIMIT 10;
 ```
+
+## Defense Demo Flow
+
+Use the dashboards in this order during the defense:
+
+1. Start with the executive overview to show current severity, active incidents,
+   freshness of jobs, and whether the system is healthy at a glance.
+2. Open the drift dashboard and compare baseline-like, mild, and severe drift.
+   Show the segment table and the `__multivariate__` detector row.
+3. Open the quality dashboard to explain labeled degradation, threshold effects,
+   and calibration changes through `roc_auc`, `f1`, `brier_score`, and `ece`.
+4. Open the proxy dashboard to demonstrate the blind period where labels are not
+   available yet but `score_psi`, `near_threshold_rate`, or `score_entropy`
+   already react.
+5. Finish with the segments and incidents dashboard to show that the system can
+   localize issues to one segment and preserve recommended actions over time.

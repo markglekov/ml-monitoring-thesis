@@ -1,0 +1,347 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "No"
+                },
+                "1": {
+                  "color": "red",
+                  "text": "Yes"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(ml_monitoring_drift_last_run_overall{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "legendFormat": "global drift",
+          "refId": "A"
+        }
+      ],
+      "title": "Global Drift Signal History",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(ml_monitoring_drift_last_run_drifted_features{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "legendFormat": "drifted features",
+          "refId": "A"
+        }
+      ],
+      "title": "Global Drifted Features History",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "max by (segment_key) (ml_monitoring_drift_segment_last_run_drifted_features{job=\"ml-monitoring-api\",model_version=\"$model_version\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Drifted Features By Segment",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "sum by (segment_key, severity) (ml_monitoring_active_incidents_by_segment{job=\"ml-monitoring-api\",model_version=\"$model_version\",source_type=\"drift\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Open Drift Incidents By Segment",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ranked_runs AS (SELECT id, ts_started, COALESCE(segment_key, '__global__') AS segment_key, status, drifted_features_count, total_features_count, overall_drift, COALESCE(summary_json ->> 'severity', CASE WHEN overall_drift THEN 'warning' ELSE 'none' END) AS severity, summary_json ->> 'recommended_action' AS recommended_action, ROW_NUMBER() OVER (PARTITION BY COALESCE(segment_key, '__global__') ORDER BY ts_started DESC, id DESC) AS rn FROM monitoring_runs WHERE model_version = '${model_version}') SELECT segment_key, ts_started, status, severity, overall_drift, drifted_features_count, total_features_count, recommended_action FROM ranked_runs WHERE rn = 1 ORDER BY CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC, drifted_features_count DESC, segment_key ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Drift Runs By Segment",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_run AS (SELECT id, COALESCE(segment_key, '__global__') AS segment_key, ts_started FROM monitoring_runs WHERE model_version = '${model_version}' ORDER BY ts_started DESC, id DESC LIMIT 1) SELECT latest_run.segment_key, drift_metrics.feature_name, drift_metrics.feature_type, drift_metrics.detector_name, drift_metrics.effect_size, drift_metrics.pvalue_adj, drift_metrics.psi_value, drift_metrics.severity, drift_metrics.drift_detected, drift_metrics.recommended_action FROM latest_run JOIN drift_metrics ON drift_metrics.run_id = latest_run.id ORDER BY CASE drift_metrics.severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC, drift_metrics.effect_size DESC NULLS LAST, drift_metrics.feature_name ASC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Drift Feature Details",
+      "type": "table"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "style": "dark",
+  "tags": [
+    "ml-monitoring",
+    "drift"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "bank_marketing_v1",
+          "value": "bank_marketing_v1"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(ml_monitoring_overview_severity, model_version)",
+        "label": "Model Version",
+        "name": "model_version",
+        "options": [],
+        "query": {
+          "query": "label_values(ml_monitoring_overview_severity, model_version)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "ML Monitoring Drift Analysis",
+  "uid": "ml-monitoring-drift",
+  "version": 1,
+  "weekStart": ""
+}
