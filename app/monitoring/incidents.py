@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from sqlalchemy import text
@@ -42,7 +43,33 @@ def build_incident_key(source_type: str, segment_key: str | None) -> str:
 def _safe_json(payload: dict[str, Any]) -> str:
     """Serialize incident payloads to JSON for PostgreSQL JSONB columns."""
 
-    return json.dumps(payload, ensure_ascii=False, default=str)
+    return json.dumps(
+        _to_json_compatible(payload),
+        ensure_ascii=False,
+        allow_nan=False,
+        default=str,
+    )
+
+
+def _to_json_compatible(value: Any) -> Any:
+    """Normalize nested values so PostgreSQL JSONB accepts the payload."""
+
+    if isinstance(value, dict):
+        return {
+            str(key): _to_json_compatible(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_to_json_compatible(item) for item in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    if hasattr(value, "item"):
+        try:
+            return _to_json_compatible(value.item())
+        except (TypeError, ValueError):
+            pass
+    return value
 
 
 def sync_monitoring_incident(
