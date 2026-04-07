@@ -62,3 +62,25 @@ CREATE INDEX IF NOT EXISTS idx_quality_metrics_metric_name
 
 CREATE INDEX IF NOT EXISTS idx_quality_metrics_severity
     ON quality_metrics(severity);
+
+CREATE TABLE IF NOT EXISTS quality_estimates (
+    id BIGSERIAL PRIMARY KEY,
+    run_id BIGINT NOT NULL REFERENCES quality_runs(id) ON DELETE CASCADE,
+    segment_key TEXT,
+    estimated_positive_rate DOUBLE PRECISION,
+    estimated_metric_name TEXT NOT NULL,
+    estimated_metric_value DOUBLE PRECISION,
+    assumption_type TEXT NOT NULL,
+    quality_estimate_uncertainty DOUBLE PRECISION,
+    confidence_interval_json JSONB,
+    details_json JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_estimates_run_id
+    ON quality_estimates(run_id);
+
+CREATE INDEX IF NOT EXISTS idx_quality_estimates_metric_name
+    ON quality_estimates(estimated_metric_name);
+
+CREATE INDEX IF NOT EXISTS idx_quality_estimates_assumption_type
+    ON quality_estimates(assumption_type);

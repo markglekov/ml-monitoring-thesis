@@ -639,6 +639,36 @@
       ],
       "title": "Latest Labeled Quality Metrics",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 10,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_proxy_run AS (SELECT id, COALESCE(segment_key, '__global__') AS segment_key, ts_started FROM quality_runs WHERE model_version = '${model_version}' AND status = 'completed_proxy' ORDER BY ts_started DESC, id DESC LIMIT 1) SELECT latest_proxy_run.segment_key, quality_estimates.assumption_type, quality_estimates.estimated_metric_name, quality_estimates.estimated_metric_value, quality_estimates.estimated_positive_rate, quality_estimates.quality_estimate_uncertainty, quality_estimates.confidence_interval_json FROM latest_proxy_run JOIN quality_estimates ON quality_estimates.run_id = latest_proxy_run.id ORDER BY quality_estimates.assumption_type ASC, quality_estimates.estimated_metric_name ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Unlabeled Quality Estimates",
+      "type": "table"
     }
   ],
   "refresh": "15s",
@@ -682,6 +712,6 @@
   "timezone": "",
   "title": "ML Monitoring Quality And Calibration",
   "uid": "ml-monitoring-quality",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

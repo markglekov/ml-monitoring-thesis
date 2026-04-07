@@ -32,6 +32,9 @@ from app.monitoring.incidents import (
     highest_severity,
     sync_monitoring_incident,
 )
+from app.monitoring.unlabeled_quality import (
+    estimate_unlabeled_quality_with_bbse,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = settings.baseline_path
@@ -621,6 +624,65 @@ def insert_quality_metrics(
         connection.execute(query, payloads)
 
 
+def insert_quality_estimates(
+    engine: Engine,
+    run_id: int,
+    segment_key: str | None,
+    estimate_rows: list[dict[str, Any]],
+) -> None:
+    """Persist assumption-based unlabeled quality estimates for one run."""
+
+    if not estimate_rows:
+        return
+
+    query = text(
+        """
+        INSERT INTO quality_estimates (
+            run_id,
+            segment_key,
+            estimated_positive_rate,
+            estimated_metric_name,
+            estimated_metric_value,
+            assumption_type,
+            quality_estimate_uncertainty,
+            confidence_interval_json,
+            details_json
+        )
+        VALUES (
+            :run_id,
+            :segment_key,
+            :estimated_positive_rate,
+            :estimated_metric_name,
+            :estimated_metric_value,
+            :assumption_type,
+            :quality_estimate_uncertainty,
+            CAST(:confidence_interval_json AS JSONB),
+            CAST(:details_json AS JSONB)
+        )
+        """
+    )
+
+    payloads = [
+        {
+            "run_id": run_id,
+            "segment_key": segment_key,
+            "estimated_positive_rate": item["estimated_positive_rate"],
+            "estimated_metric_name": item["estimated_metric_name"],
+            "estimated_metric_value": item["estimated_metric_value"],
+            "assumption_type": item["assumption_type"],
+            "quality_estimate_uncertainty": item[
+                "quality_estimate_uncertainty"
+            ],
+            "confidence_interval_json": safe_json(item["confidence_interval"]),
+            "details_json": safe_json(item["details"]),
+        }
+        for item in estimate_rows
+    ]
+
+    with engine.begin() as connection:
+        connection.execute(query, payloads)
+
+
 def build_metric_rows(
     current_metrics: dict[str, float | None],
     baseline_metrics: dict[str, float],
@@ -721,6 +783,9 @@ def run_quality_job(
     baseline_proxy_metrics = get_baseline_proxy_metrics(
         baseline_profile, baseline_source=baseline_source
     )
+    feature_columns = cast(
+        list[str] | None, baseline_profile.get("feature_columns")
+    )
     threshold = float(baseline_profile.get("threshold", 0.5))
     engine = create_engine(
         settings.database_url, future=True, pool_pre_ping=True
@@ -734,6 +799,8 @@ def run_quality_job(
             engine, window_size=window_size, segment_key=segment_key
         )
         labeled_rows = int(len(labeled_window_df))
+        unlabeled_quality_estimates: list[dict[str, Any]] = []
+        unlabeled_quality_estimation_error: str | None = None
 
         if not labeled_window_df.empty and len(labeled_window_df) >= min_rows:
             evaluation_mode = "labeled"
@@ -788,6 +855,30 @@ def run_quality_job(
                 reference_scores=reference_scores,
                 threshold=threshold,
             )
+            try:
+                unlabeled_quality_estimates = (
+                    estimate_unlabeled_quality_with_bbse(
+                        current_window_df=current_window_df,
+                        model=model,
+                        threshold=threshold,
+                        baseline_source=baseline_source,
+                        feature_columns=feature_columns,
+                        baseline_metrics=baseline_metrics,
+                    )
+                )
+            except Exception as exc:
+                unlabeled_quality_estimation_error = str(exc)
+                logger.warning(
+                    (
+                        "Failed to compute unlabeled quality estimate. "
+                        "run_id=%s segment_key=%s baseline_source=%s error=%s"
+                    ),
+                    run_id,
+                    segment_key,
+                    baseline_source,
+                    exc,
+                    exc_info=True,
+                )
             metrics_rows = build_metric_rows(
                 current_metrics=current_metrics,
                 baseline_metrics=baseline_proxy_metrics,
@@ -802,6 +893,12 @@ def run_quality_job(
             run_id=run_id,
             segment_key=segment_key,
             metrics_rows=metrics_rows,
+        )
+        insert_quality_estimates(
+            engine,
+            run_id=run_id,
+            segment_key=segment_key,
+            estimate_rows=unlabeled_quality_estimates,
         )
 
         degraded_metrics = [
@@ -857,6 +954,12 @@ def run_quality_job(
                 else baseline_proxy_metrics
             ),
             "degraded_metrics": degraded_metric_names,
+            "unlabeled_quality_estimates": unlabeled_quality_estimates,
+            "unlabeled_quality_estimation_error": (
+                unlabeled_quality_estimation_error
+                if evaluation_mode == "proxy"
+                else None
+            ),
         }
 
         finalize_quality_run(

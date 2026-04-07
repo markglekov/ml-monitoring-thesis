@@ -190,7 +190,66 @@ Expected outcome:
 - the quality job should finish with `status=completed_proxy`
 - proxy metrics such as `score_psi`, `near_threshold_rate`, or `score_entropy`
   may degrade before labels are available
+- `summary.unlabeled_quality_estimates` should contain assumption-based
+  estimates under `assumption_type=label_shift`, for example estimated
+  `positive_rate_true`, `precision`, `recall`, or `f1`
 - an open incident may appear in `GET /monitoring/incidents`
+
+To compare an estimate before backfill with the true labeled metric after
+labels arrive, rerun the same segment in two stages:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
+  --window-size 1000 \
+  --segment-key quality_proxy_demo \
+  --baseline-source test
+
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.backfill_labels \
+  --segment-key quality_proxy_demo \
+  --delay-minutes 60
+
+UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
+  --window-size 1000 \
+  --segment-key quality_proxy_demo \
+  --baseline-source test
+```
+
+Then inspect proxy-time estimates against the later labeled metric:
+
+```sql
+WITH latest_proxy_run AS (
+    SELECT id
+    FROM quality_runs
+    WHERE segment_key = 'quality_proxy_demo'
+      AND status = 'completed_proxy'
+    ORDER BY ts_started DESC, id DESC
+    LIMIT 1
+),
+latest_labeled_run AS (
+    SELECT id
+    FROM quality_runs
+    WHERE segment_key = 'quality_proxy_demo'
+      AND status = 'completed'
+    ORDER BY ts_started DESC, id DESC
+    LIMIT 1
+)
+SELECT
+    qe.assumption_type,
+    qe.estimated_metric_name,
+    qe.estimated_metric_value,
+    qe.quality_estimate_uncertainty,
+    qm.metric_value AS true_metric_value
+FROM latest_proxy_run
+JOIN quality_estimates qe
+    ON qe.run_id = latest_proxy_run.id
+LEFT JOIN latest_labeled_run
+    ON TRUE
+LEFT JOIN quality_metrics qm
+    ON qm.run_id = latest_labeled_run.id
+   AND qm.metric_name = qe.estimated_metric_name
+WHERE qe.estimated_metric_name IN ('positive_rate_true', 'f1')
+ORDER BY qe.estimated_metric_name ASC;
+```
 
 ### Segment-Localized Monitoring
 
@@ -207,7 +266,7 @@ Expected outcome:
 - Raw prediction events: `inference_log`
 - Delayed labels: `ground_truth`
 - Drift runs: `monitoring_runs`, `drift_metrics`
-- Quality runs: `quality_runs`, `quality_metrics`
+- Quality runs: `quality_runs`, `quality_metrics`, `quality_estimates`
 - Monitoring incidents: `monitoring_incidents`
 - Simulator manifests: `artifacts/reports/manifests/`
 

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from app.api import main
-from app.monitoring import drift_job, quality_job
+from app.monitoring import drift_job, quality_job, unlabeled_quality
 
 
 class DummyScoreModel:
@@ -112,6 +112,135 @@ def test_run_quality_job_persists_quality_run_and_metrics(
     assert int(run_row["labeled_rows"]) == 20
     assert int(run_row["degraded_metrics_count"]) > 0
     assert int(metric_count) >= 8
+
+
+@pytest.mark.integration
+def test_run_quality_job_persists_unlabeled_quality_estimates(
+    monkeypatch, postgres_engine
+) -> None:
+    segment_key = "quality-proxy-it"
+    seed_inference_rows(
+        postgres_engine,
+        count=20,
+        segment_key=segment_key,
+        positive_label_every=4,
+    )
+
+    monkeypatch.setattr(
+        quality_job, "create_engine", lambda *args, **kwargs: postgres_engine
+    )
+    monkeypatch.setattr(
+        quality_job,
+        "load_baseline_profile",
+        lambda: {
+            "threshold": 0.5,
+            "feature_columns": ["age", "job"],
+            "test_metrics": {
+                "accuracy": 0.92,
+                "f1": 0.90,
+                "positive_rate_true": 0.40,
+                "precision": 0.91,
+                "recall": 0.89,
+            },
+            "test_proxy_metrics": {
+                "score_mean": 0.50,
+                "score_std": 0.20,
+                "score_entropy": 0.55,
+                "near_threshold_rate": 0.20,
+                "positive_rate_pred": 0.50,
+                "score_psi": 0.05,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        quality_job,
+        "load_reference_data",
+        lambda: pd.DataFrame(
+            {
+                "age": list(range(20, 40)),
+                "job": ["admin"] * 20,
+            }
+        ),
+    )
+    monkeypatch.setattr(quality_job, "load_model", lambda: DummyScoreModel())
+    monkeypatch.setattr(
+        unlabeled_quality,
+        "load_reference_labeled_data",
+        lambda baseline_source: pd.DataFrame(
+            {
+                "age": [22, 28, 35, 55, 61, 67],
+                "job": [
+                    "admin",
+                    "student",
+                    "admin",
+                    "admin",
+                    "student",
+                    "admin",
+                ],
+                "target": [0, 0, 0, 1, 1, 1],
+            }
+        ),
+    )
+
+    result = quality_job.run_quality_job(
+        window_size=20,
+        min_rows=10,
+        baseline_source="test",
+        segment_key=segment_key,
+    )
+
+    assert result["status"] == "completed_proxy"
+    assert result["summary"]["unlabeled_quality_estimation_error"] is None
+    assert len(result["summary"]["unlabeled_quality_estimates"]) == 5
+
+    with postgres_engine.connect() as connection:
+        run_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT status, labeled_rows, degraded_metrics_count
+                    FROM quality_runs
+                    """
+                )
+            )
+            .mappings()
+            .one()
+        )
+        estimate_rows = (
+            connection.execute(
+                text(
+                    """
+                    SELECT
+                        segment_key,
+                        estimated_positive_rate,
+                        estimated_metric_name,
+                        estimated_metric_value,
+                        assumption_type,
+                        quality_estimate_uncertainty,
+                        confidence_interval_json
+                    FROM quality_estimates
+                    ORDER BY estimated_metric_name ASC
+                    """
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert run_row["status"] == "completed_proxy"
+    assert int(run_row["labeled_rows"]) == 0
+    assert len(estimate_rows) == 5
+    assert {str(row["assumption_type"]) for row in estimate_rows} == {
+        "label_shift"
+    }
+    assert {str(row["estimated_metric_name"]) for row in estimate_rows} == {
+        "accuracy",
+        "f1",
+        "positive_rate_true",
+        "precision",
+        "recall",
+    }
+    assert all(row["segment_key"] == segment_key for row in estimate_rows)
 
 
 @pytest.mark.integration
