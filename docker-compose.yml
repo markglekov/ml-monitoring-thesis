@@ -40,6 +40,7 @@ services:
       API_PORT: 8000
     volumes:
       - ./:/app
+      - /app/.venv
     ports:
       - "${API_PORT}:8000"
     depends_on:
@@ -80,6 +81,7 @@ services:
       SCHEDULER_INCLUDE_GLOBAL_SEGMENT: ${SCHEDULER_INCLUDE_GLOBAL_SEGMENT:-true}
     volumes:
       - ./:/app
+      - /app/.venv
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,6 +175,7 @@ services:
       SMTP_TIMEOUT_SEC: ${SMTP_TIMEOUT_SEC:-15}
     volumes:
       - ./:/app
+      - /app/.venv
     healthcheck:
       test:
         [
