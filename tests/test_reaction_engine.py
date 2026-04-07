@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from app.monitoring import reaction_engine
@@ -52,3 +54,30 @@ def test_build_action_configs_rejects_threshold_above_cap() -> None:
             action_type="tighten_threshold",
             threshold_step=0.05,
         )
+
+
+def test_maybe_execute_critical_reaction_swallows_runtime_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        reaction_engine,
+        "get_open_incident_by_key",
+        lambda engine, incident_key: {
+            "id": 7,
+            "severity": "critical",
+            "title": "Quality degradation detected",
+        },
+    )
+    monkeypatch.setattr(
+        reaction_engine,
+        "execute_monitoring_action",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            FileNotFoundError("baseline missing")
+        ),
+    )
+
+    action = reaction_engine.maybe_execute_critical_reaction(
+        cast(Any, object()), incident_key="quality:segment-a"
+    )
+
+    assert action is None

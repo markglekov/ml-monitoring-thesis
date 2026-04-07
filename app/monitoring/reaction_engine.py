@@ -17,6 +17,7 @@ ACTION_STATUS_EXECUTED = "executed"
 ACTION_STATUS_DRY_RUN = "dry_run"
 ACTION_STATUS_ROLLED_BACK = "rolled_back"
 ACTION_STATUS_SKIPPED = "skipped"
+DEFAULT_BASELINE_THRESHOLD = 0.5
 AUTOMATION_TITLES = {
     "Drift monitoring signal",
     "Quality degradation detected",
@@ -70,9 +71,28 @@ def parse_json_object(value: Any) -> dict[str, Any] | None:
 def load_baseline_threshold() -> float:
     """Load the training-time threshold used as the policy baseline."""
 
-    with settings.baseline_path.open("r", encoding="utf-8") as file_obj:
-        baseline_profile = json.load(file_obj)
-    return float(baseline_profile.get("threshold", 0.5))
+    try:
+        with settings.baseline_path.open("r", encoding="utf-8") as file_obj:
+            baseline_profile = json.load(file_obj)
+        return float(
+            baseline_profile.get("threshold", DEFAULT_BASELINE_THRESHOLD)
+        )
+    except (
+        FileNotFoundError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        logger.warning(
+            (
+                "Failed to load baseline threshold from %s. "
+                "Falling back to %.2f for reaction engine."
+            ),
+            settings.baseline_path,
+            DEFAULT_BASELINE_THRESHOLD,
+        )
+        return DEFAULT_BASELINE_THRESHOLD
 
 
 def get_incident_by_id(engine: Engine, incident_id: int) -> dict[str, Any]:
@@ -816,5 +836,14 @@ def maybe_execute_critical_reaction(
             "Skipping automatic reaction for incident_id=%s: %s",
             incident["id"],
             exc,
+        )
+        return None
+    except Exception:
+        logger.exception(
+            (
+                "Automatic reaction failed for incident_id=%s. "
+                "Continuing without blocking the monitoring job."
+            ),
+            incident["id"],
         )
         return None
