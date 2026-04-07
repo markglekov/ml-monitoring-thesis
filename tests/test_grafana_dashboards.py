@@ -68,7 +68,7 @@ def test_quality_dashboard_includes_data_quality_block() -> None:
         quality_dashboard, "Recent Unknown Category Rate"
     )
 
-    assert quality_dashboard["version"] >= 3
+    assert quality_dashboard["version"] >= 4
     assert (
         "ml_monitoring_data_quality_feature_missing_rate"
         in missing_panel["targets"][0]["expr"]
@@ -81,3 +81,20 @@ def test_quality_dashboard_includes_data_quality_block() -> None:
         "ml_monitoring_data_quality_unknown_category_rate"
         in category_panel["targets"][0]["expr"]
     )
+
+
+def test_quality_dashboard_includes_unlabeled_quality_estimates_panel() -> (
+    None
+):
+    quality_dashboard = _load_dashboard("ml-monitoring-quality.json")
+
+    panel = _find_panel(
+        quality_dashboard, "Latest Unlabeled Quality Estimates"
+    )
+    target = panel["targets"][0]
+
+    assert panel["datasource"]["type"] == "postgres"
+    assert target["format"] == "table"
+    assert "quality_estimates" in target["rawSql"]
+    assert "assumption_type" in target["rawSql"]
+    assert "confidence_interval_json" in target["rawSql"]

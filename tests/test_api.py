@@ -309,3 +309,46 @@ def test_get_drift_runs_preserves_advanced_detector_fields(
     assert detector["window_start"] == "2026-01-01T00:00:00+00:00"
     assert detector["window_end"] == "2026-01-01T00:19:00+00:00"
     assert detector["segment_key"] == "segment-a"
+
+
+def test_get_quality_runs_preserves_unlabeled_quality_estimates(
+    monkeypatch,
+) -> None:
+    main.app.state.engine = object()
+    estimate = {
+        "assumption_type": "label_shift",
+        "estimated_positive_rate": 0.41,
+        "estimated_metric_name": "f1",
+        "estimated_metric_value": 0.58,
+        "quality_estimate_uncertainty": 0.06,
+        "confidence_interval": {"lower": 0.52, "upper": 0.64},
+        "details": {"baseline_source": "test"},
+    }
+
+    monkeypatch.setattr(
+        main,
+        "list_quality_runs",
+        lambda engine, limit, segment_key=None: [
+            main.QualityRunResponse(
+                id=11,
+                ts_started=datetime.now(UTC),
+                ts_finished=datetime.now(UTC),
+                model_version=main.settings.model_version,
+                window_size=20,
+                segment_key=segment_key,
+                status="completed_proxy",
+                labeled_rows=0,
+                degraded_metrics_count=1,
+                summary={"unlabeled_quality_estimates": [estimate]},
+            )
+        ],
+    )
+
+    response = main.get_quality_runs(limit=10, segment_key="segment-b")
+
+    assert response[0].summary is not None
+    summary_estimate = response[0].summary["unlabeled_quality_estimates"][0]
+    assert summary_estimate["assumption_type"] == "label_shift"
+    assert summary_estimate["estimated_metric_name"] == "f1"
+    assert summary_estimate["estimated_metric_value"] == 0.58
+    assert summary_estimate["quality_estimate_uncertainty"] == 0.06
