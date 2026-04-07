@@ -183,19 +183,61 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(
             connection.execute(
                 text(
                     """
-                    SELECT feature_name
+                    SELECT feature_name, detector_name, drift_detected
                     FROM drift_metrics
-                    ORDER BY feature_name
+                    ORDER BY feature_name, detector_name
                     """
                 )
             )
-            .scalars()
+            .mappings()
             .all()
         )
 
     assert run_row["status"] == "completed"
     assert bool(run_row["overall_drift"]) is True
     assert int(run_row["drifted_features_count"]) > 0
-    assert "__score" in metric_rows
-    assert "age" in metric_rows
-    assert "job" in metric_rows
+    detector_names = {str(row["detector_name"]) for row in metric_rows}
+    assert detector_names >= {
+        "univariate",
+        "domain_classifier",
+        "mmd",
+        "wasserstein",
+        "cusum",
+        "ewma",
+        "adwin",
+        "ddm",
+        "eddm",
+    }
+
+    drifted_rows = {
+        (str(row["feature_name"]), str(row["detector_name"]))
+        for row in metric_rows
+        if bool(row["drift_detected"])
+    }
+    assert ("age", "univariate") in drifted_rows
+    assert ("job", "univariate") in drifted_rows
+    assert ("__score", "wasserstein") in drifted_rows
+    assert ("__score", "cusum") in drifted_rows
+    assert ("__score", "ewma") in drifted_rows
+    assert ("__score", "adwin") in drifted_rows
+    assert ("__score", "ddm") in drifted_rows
+    assert ("__score", "eddm") in drifted_rows
+    assert ("__multivariate__", "domain_classifier") in drifted_rows
+    assert ("__multivariate__", "mmd") in drifted_rows
+
+    advanced_summary_rows = result["summary"]["advanced_drift_detectors"]
+    advanced_summary_detector_names = {
+        str(item["detector_name"]) for item in advanced_summary_rows
+    }
+    assert advanced_summary_detector_names == {
+        "mmd",
+        "wasserstein",
+        "cusum",
+        "ewma",
+        "adwin",
+        "ddm",
+        "eddm",
+    }
+    assert all(
+        bool(item["drift_detected"]) is True for item in advanced_summary_rows
+    )
