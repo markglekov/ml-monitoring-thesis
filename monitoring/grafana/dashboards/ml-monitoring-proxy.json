@@ -381,6 +381,51 @@
         "uid": "postgres"
       },
       "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', il.ts) AS \"time\", COUNT(gt.request_id)::double precision / NULLIF(COUNT(*), 0) AS label_coverage FROM inference_log il LEFT JOIN ground_truth gt ON gt.request_id = il.request_id WHERE il.model_version = '${model_version}' AND $__timeFilter(il.ts) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Label Coverage Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
@@ -388,7 +433,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "id": 8,
       "options": {
@@ -447,6 +492,6 @@
   "timezone": "",
   "title": "ML Monitoring Blind Period Proxy Signals",
   "uid": "ml-monitoring-proxy",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

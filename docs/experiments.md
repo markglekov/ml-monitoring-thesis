@@ -266,7 +266,8 @@ Use the dashboards in this order during the defense:
 3. Open the quality dashboard to explain labeled degradation, threshold effects,
    and calibration changes through `roc_auc`, `f1`, `brier_score`, and `ece`.
 4. Open the proxy dashboard to demonstrate the blind period where labels are not
-   available yet but `score_psi`, `near_threshold_rate`, or `score_entropy`
-   already react.
+   available yet. Show `Label Coverage Over Time` first, then explain how
+   `score_psi`, `near_threshold_rate`, or `score_entropy` already react before
+   delayed labels catch up.
 5. Finish with the segments and incidents dashboard to show that the system can
    localize issues to one segment and preserve recommended actions over time.
