@@ -40,4 +40,16 @@ def test_proxy_segment_score_psi_thresholds_match_overview() -> None:
 def test_proxy_dashboard_version_reflects_threshold_fix() -> None:
     proxy_dashboard = _load_dashboard("ml-monitoring-proxy.json")
 
-    assert proxy_dashboard["version"] >= 3
+    assert proxy_dashboard["version"] >= 4
+
+
+def test_proxy_dashboard_includes_label_coverage_panel() -> None:
+    proxy_dashboard = _load_dashboard("ml-monitoring-proxy.json")
+
+    panel = _find_panel(proxy_dashboard, "Label Coverage Over Time")
+    target = panel["targets"][0]
+
+    assert panel["datasource"]["type"] == "postgres"
+    assert target["format"] == "time_series"
+    assert "LEFT JOIN ground_truth" in target["rawSql"]
+    assert "COUNT(gt.request_id)" in target["rawSql"]
