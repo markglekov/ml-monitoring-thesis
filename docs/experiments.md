@@ -252,6 +252,11 @@ LIMIT 10;
 
 ## Defense Demo Flow
 
+The Grafana dashboards intentionally use a `15s` auto-refresh in this demo so
+changes appear quickly during the defense. For production batch or
+window-based monitoring, use a slower refresh cadence aligned with the actual
+drift and quality job schedule.
+
 Use the dashboards in this order during the defense:
 
 1. Start with the executive overview to show current severity, active incidents,
