@@ -2,6 +2,20 @@
 
 End-to-end ML monitoring prototype for a binary classification service. The project covers model training, online inference, delayed labels, multilevel drift and quality monitoring, alerting, incident traceability, and a small overview UI on top of the monitoring data.
 
+## Research Contribution
+
+- End-to-end thesis prototype for delayed-label monitoring, not only a model
+  API: the repository includes training, serving, logging, monitoring,
+  incidents, dashboards, and mitigation actions in one traceable system.
+- Explicit blind-period monitoring protocol: proxy metrics, label coverage, and
+  unlabeled quality estimates are implemented alongside classic labeled
+  evaluation.
+- Combined monitoring evidence model: PostgreSQL stores raw events, runs,
+  metrics, incidents, and actions; Prometheus and Grafana expose both
+  time-series and operator-facing summaries.
+- Reproducible experiment pack for the defense: final scenarios, screenshots,
+  and aggregated evidence tables can be regenerated from the repository.
+
 ## What Is Included
 
 - `FastAPI` inference API with request logging to PostgreSQL
@@ -14,6 +28,17 @@ End-to-end ML monitoring prototype for a binary classification service. The proj
 - Monitoring incidents with recommended actions
 - Overview API and lightweight UI for the latest monitoring state
 - Unit and integration tests
+
+## Implemented Scenarios
+
+- Baseline-like drift and quality runs
+- Mild and severe distribution drift
+- Mild and severe labeled quality degradation
+- Blind-period proxy monitoring before delayed labels arrive
+- Assumption-based unlabeled quality estimation under label shift
+- Segment-localized monitoring and incidents
+- Automated reaction flow with action execution and rollback
+- Final evidence export in `artifacts/reports/final/`
 
 ## Tech Stack
 
@@ -40,6 +65,19 @@ sql/              Database schema bootstrap SQL
 tests/            Unit and integration tests
 docs/             Reproducible experiment runbooks and reports
 ```
+
+## How This Maps To Thesis Chapters
+
+- Chapter 1, problem statement and methods:
+  drift detectors, delayed labels, blind period, proxy monitoring,
+  unlabeled quality estimation, and reaction logic.
+- Chapter 2, system design:
+  API, storage model, scheduler, monitoring jobs, incidents, dashboards,
+  and the architecture in [`docs/architecture.md`](docs/architecture.md).
+- Chapter 3, experiments and evaluation:
+  reproducible scenarios in [`docs/experiments.md`](docs/experiments.md),
+  one-page defense flow in [`docs/defense-checklist.md`](docs/defense-checklist.md),
+  and saved final artifacts in `artifacts/reports/final/`.
 
 ## Quick Start
 
@@ -237,6 +275,26 @@ alerting simple and also makes the demo dashboards more useful for defense.
 
 For reproducible experiment scenarios and expected outcomes, see
 [`docs/experiments.md`](docs/experiments.md).
+
+For the end-to-end system diagram and architectural dataflow, see
+[`docs/architecture.md`](docs/architecture.md).
+
+For the shortest defense script with exact commands, dashboards, SQL queries,
+incident choice, and rollback steps, see
+[`docs/defense-checklist.md`](docs/defense-checklist.md).
+
+## Limitations
+
+- The prototype is centered on one binary-classification use case and one
+  dataset; it is not a benchmark across many domains.
+- Monitoring is implemented as window-based batch jobs, not as a fully
+  distributed streaming platform.
+- Automatic reactions are intentionally conservative:
+  threshold tightening and manual review are implemented, while full automated
+  retraining is out of scope.
+- Some final defense artifacts are generated locally under `artifacts/reports/`
+  and are ignored by git by design, so they should be regenerated before the
+  final presentation or submission snapshot.
 
 ## Email Alerting
 

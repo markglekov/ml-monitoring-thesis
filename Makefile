@@ -3,7 +3,7 @@
 UV := UV_CACHE_DIR=.uv-cache uv
 PRE_COMMIT_HOME := .pre-commit-cache
 
-.PHONY: help lock sync sync-prod format format-check lint lint-fix typecheck test test-unit test-integration test-all check hooks-install hooks-run ci run-api db-shell docker-up docker-up-mailpit docker-down
+.PHONY: help lock sync sync-prod format format-check lint lint-fix typecheck test test-unit test-integration test-all check hooks-install hooks-run ci run-api db-shell docker-up docker-up-mailpit docker-down final-summary
 
 help:
 	@printf "%s\n" \
@@ -28,7 +28,8 @@ help:
 		"  db-shell          Open psql inside the PostgreSQL container" \
 		"  docker-up         Start the full Docker stack" \
 		"  docker-up-mailpit Start the stack with Mailpit for local email testing" \
-		"  docker-down       Stop the Docker stack"
+		"  docker-down       Stop the Docker stack" \
+		"  final-summary     Build one aggregated scenario evidence table"
 
 lock:
 	mkdir -p .uv-cache
@@ -92,3 +93,6 @@ docker-up-mailpit:
 
 docker-down:
 	docker compose down
+
+final-summary:
+	$(UV) run python -m app.reporting.build_scenario_summary
