@@ -53,6 +53,15 @@ def test_predict_returns_prediction_response(monkeypatch) -> None:
         main, "insert_inference_log", fake_insert_inference_log
     )
     monkeypatch.setattr(main, "record_prediction", fake_record_prediction)
+    monkeypatch.setattr(
+        main,
+        "get_runtime_policy",
+        lambda app, segment_key: {
+            "threshold": 0.5,
+            "manual_review_probability": 0.0,
+            "action_ids": [],
+        },
+    )
 
     response = main.predict(
         main.PredictRequest(
@@ -66,8 +75,13 @@ def test_predict_returns_prediction_response(monkeypatch) -> None:
     assert response.predicted_label == 1
     assert response.segment_key == "smoke"
     assert response.threshold == 0.5
+    assert response.decision_status == "predicted"
+    assert response.decision_source == "model"
+    assert response.applied_action_ids == []
     assert captured["pred_label"] == 1
     assert captured["segment_key"] == "smoke"
+    assert captured["decision_status"] == "predicted"
+    assert captured["decision_source"] == "model"
     assert captured["metrics"]["predicted_label"] == 1
 
 
@@ -106,6 +120,46 @@ def test_ingest_labels_batch_rejects_duplicate_request_ids() -> None:
     assert exc_info.value.status_code == 422
     assert detail["message"] == "Duplicate request_id values in batch payload."
     assert detail["request_ids"] == ["dup-id"]
+
+
+def test_predict_routes_request_to_manual_review(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    configure_app_state()
+    monkeypatch.setattr(
+        main,
+        "get_runtime_policy",
+        lambda app, segment_key: {
+            "threshold": 0.7,
+            "manual_review_probability": 1.0,
+            "action_ids": [41, 42],
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "insert_inference_log",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.setattr(main, "record_prediction", lambda **kwargs: None)
+
+    response = main.predict(
+        main.PredictRequest(
+            request_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            segment_key="segment-z",
+            features={"age": 42, "job": "admin"},
+        )
+    )
+
+    assert response.predicted_label is None
+    assert response.threshold == 0.7
+    assert response.decision_status == "manual_review"
+    assert response.decision_source == "manual_review"
+    assert response.applied_action_ids == [41, 42]
+    assert captured["pred_label"] == 1
+    assert captured["threshold"] == 0.7
+    assert captured["decision_status"] == "manual_review"
+    assert captured["decision_source"] == "manual_review"
+    assert captured["applied_action_ids"] == [41, 42]
 
 
 def test_ingest_labels_batch_upserts_labels(monkeypatch) -> None:
@@ -352,3 +406,69 @@ def test_get_quality_runs_preserves_unlabeled_quality_estimates(
     assert summary_estimate["estimated_metric_name"] == "f1"
     assert summary_estimate["estimated_metric_value"] == 0.58
     assert summary_estimate["quality_estimate_uncertainty"] == 0.06
+
+
+def test_execute_monitoring_action_endpoint_returns_action_response(
+    monkeypatch,
+) -> None:
+    main.app.state.engine = object()
+
+    monkeypatch.setattr(
+        main,
+        "execute_monitoring_action",
+        lambda engine, **kwargs: {
+            "action_id": 9,
+            "incident_id": 3,
+            "action_type": "tighten_threshold",
+            "status": "executed",
+            "started_at": datetime.now(UTC),
+            "ended_at": None,
+            "trigger_reason": "critical quality incident",
+            "old_config": {"threshold": 0.5},
+            "new_config": {"threshold": 0.55},
+        },
+    )
+
+    response = main.execute_monitoring_action_endpoint(
+        main.MonitoringActionExecuteRequest(
+            incident_id=3,
+            action_type="tighten_threshold",
+            mode="real",
+        )
+    )
+
+    assert response.action_id == 9
+    assert response.status == "executed"
+    assert response.action_type == "tighten_threshold"
+    assert response.new_config == {"threshold": 0.55}
+
+
+def test_rollback_monitoring_action_endpoint_returns_action_response(
+    monkeypatch,
+) -> None:
+    main.app.state.engine = object()
+
+    monkeypatch.setattr(
+        main,
+        "rollback_monitoring_action",
+        lambda engine, **kwargs: {
+            "action_id": 10,
+            "incident_id": 3,
+            "action_type": "rollback_tighten_threshold",
+            "status": "executed",
+            "started_at": datetime.now(UTC),
+            "ended_at": datetime.now(UTC),
+            "trigger_reason": "operator rollback",
+            "old_config": {"threshold": 0.55},
+            "new_config": {"threshold": 0.5},
+        },
+    )
+
+    response = main.rollback_monitoring_action_endpoint(
+        main.MonitoringActionRollbackRequest(action_id=9, mode="real")
+    )
+
+    assert response.action_id == 10
+    assert response.status == "executed"
+    assert response.action_type == "rollback_tighten_threshold"
+    assert response.new_config == {"threshold": 0.5}

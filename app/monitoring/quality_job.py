@@ -32,6 +32,7 @@ from app.monitoring.incidents import (
     highest_severity,
     sync_monitoring_incident,
 )
+from app.monitoring.reaction_engine import maybe_execute_critical_reaction
 from app.monitoring.unlabeled_quality import (
     estimate_unlabeled_quality_with_bbse,
 )
@@ -983,9 +984,10 @@ def run_quality_job(
             overall_severity,
             evaluation_mode,
         )
+        incident_key = build_incident_key("quality", segment_key)
         sync_monitoring_incident(
             engine,
-            incident_key=build_incident_key("quality", segment_key),
+            incident_key=incident_key,
             source_type="quality",
             model_version=settings.model_version,
             segment_key=segment_key,
@@ -1003,6 +1005,7 @@ def run_quality_job(
             },
             latest_run_id=run_id,
         )
+        maybe_execute_critical_reaction(engine, incident_key=incident_key)
         return {
             "run_id": run_id,
             "status": run_status,
@@ -1022,9 +1025,10 @@ def run_quality_job(
             degraded_metrics_count=0,
             summary={"error": str(exc)},
         )
+        incident_key = build_incident_key("quality", segment_key)
         sync_monitoring_incident(
             engine,
-            incident_key=build_incident_key("quality", segment_key),
+            incident_key=incident_key,
             source_type="quality",
             model_version=settings.model_version,
             segment_key=segment_key,
@@ -1037,6 +1041,7 @@ def run_quality_job(
             summary={"error": str(exc), "run_id": run_id},
             latest_run_id=run_id,
         )
+        maybe_execute_critical_reaction(engine, incident_key=incident_key)
         raise
     finally:
         engine.dispose()

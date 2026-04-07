@@ -142,6 +142,7 @@ def test_run_drift_job_reports_advanced_detector_rows(
     ]
 
     captured_results: dict[str, list[dict[str, object]]] = {}
+    captured_reactions: list[str] = []
 
     monkeypatch.setattr(
         drift_job, "create_engine", lambda *args, **kwargs: DummyEngine()
@@ -159,6 +160,11 @@ def test_run_drift_job_reports_advanced_detector_rows(
     )
     monkeypatch.setattr(
         drift_job, "sync_monitoring_incident", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        drift_job,
+        "maybe_execute_critical_reaction",
+        lambda engine, incident_key: captured_reactions.append(incident_key),
     )
     monkeypatch.setattr(
         drift_job,
@@ -232,3 +238,4 @@ def test_run_drift_job_reports_advanced_detector_rows(
     assert all(
         item["segment_key"] == "unit-drift" for item in advanced_summary
     )
+    assert captured_reactions == ["drift:unit-drift"]

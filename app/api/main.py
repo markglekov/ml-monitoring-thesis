@@ -35,6 +35,12 @@ from app.monitoring.incidents import (
     list_monitoring_incidents,
     severity_rank,
 )
+from app.monitoring.reaction_engine import (
+    execute_monitoring_action,
+    resolve_runtime_policy,
+    rollback_monitoring_action,
+    should_route_to_manual_review,
+)
 
 logger = get_logger(__name__)
 OVERVIEW_PAGE_PATH = (
@@ -63,8 +69,11 @@ class PredictResponse(BaseModel):
     model_version: str
     score: float
     threshold: float
-    predicted_label: int
+    predicted_label: int | None
     segment_key: str | None
+    decision_status: Literal["predicted", "manual_review"]
+    decision_source: Literal["model", "threshold_tightening", "manual_review"]
+    applied_action_ids: list[int] = Field(default_factory=list)
 
 
 class GroundTruthLabelRequest(BaseModel):
@@ -192,6 +201,39 @@ class MonitoringIncidentResponse(BaseModel):
     ts_resolved: datetime | None
 
 
+class MonitoringActionResponse(BaseModel):
+    """One monitoring reaction action or rollback event."""
+
+    action_id: int
+    incident_id: int
+    action_type: str
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+    trigger_reason: str
+    old_config: dict[str, Any] | None
+    new_config: dict[str, Any] | None
+
+
+class MonitoringActionExecuteRequest(BaseModel):
+    """Request payload to execute one monitoring action."""
+
+    incident_id: int
+    action_type: Literal["tighten_threshold", "manual_review"] | None = None
+    mode: Literal["dry_run", "real"] = "dry_run"
+    threshold_step: float | None = None
+    manual_review_probability: float | None = None
+    trigger_reason: str | None = None
+
+
+class MonitoringActionRollbackRequest(BaseModel):
+    """Request payload to rollback one active monitoring action."""
+
+    action_id: int
+    mode: Literal["dry_run", "real"] = "dry_run"
+    trigger_reason: str | None = None
+
+
 MonitoringOverviewResponse.model_rebuild()
 
 
@@ -300,6 +342,38 @@ def get_threshold(app: FastAPI) -> float:
     return float(getattr(app.state, "threshold", 0.5))
 
 
+def get_runtime_policy(
+    app: FastAPI, *, segment_key: str | None
+) -> dict[str, Any]:
+    """Resolve active runtime mitigations for one request segment."""
+
+    engine = get_engine(app)
+    return resolve_runtime_policy(
+        engine,
+        model_version=settings.model_version,
+        baseline_threshold=get_threshold(app),
+        segment_key=segment_key,
+    )
+
+
+def build_monitoring_action_response(
+    row: dict[str, Any],
+) -> MonitoringActionResponse:
+    """Convert a raw action payload into the API response model."""
+
+    return MonitoringActionResponse(
+        action_id=int(row["action_id"]),
+        incident_id=int(row["incident_id"]),
+        action_type=str(row["action_type"]),
+        status=str(row["status"]),
+        started_at=row["started_at"],
+        ended_at=row.get("ended_at"),
+        trigger_reason=str(row["trigger_reason"]),
+        old_config=parse_json_object(row.get("old_config")),
+        new_config=parse_json_object(row.get("new_config")),
+    )
+
+
 def validate_limit(limit: int) -> None:
     """Validate common pagination limit for list endpoints."""
 
@@ -397,6 +471,9 @@ def insert_inference_log(
     threshold: float,
     segment_key: str | None,
     latency_ms: float,
+    decision_status: str = "predicted",
+    decision_source: str = "model",
+    applied_action_ids: list[int] | None = None,
 ) -> None:
     """Persist one prediction event into PostgreSQL."""
 
@@ -409,6 +486,9 @@ def insert_inference_log(
             score,
             pred_label,
             threshold,
+            decision_status,
+            decision_source,
+            applied_action_ids,
             segment_key,
             latency_ms
         )
@@ -419,6 +499,9 @@ def insert_inference_log(
             :score,
             :pred_label,
             :threshold,
+            :decision_status,
+            :decision_source,
+            CAST(:applied_action_ids AS JSONB),
             :segment_key,
             :latency_ms
         )
@@ -432,6 +515,9 @@ def insert_inference_log(
         "score": float(score),
         "pred_label": int(pred_label),
         "threshold": float(threshold),
+        "decision_status": decision_status,
+        "decision_source": decision_source,
+        "applied_action_ids": json.dumps(applied_action_ids or []),
         "segment_key": segment_key,
         "latency_ms": float(latency_ms),
     }
@@ -1045,11 +1131,13 @@ def predict(payload: PredictRequest) -> PredictResponse:
     model = get_model(app)
     engine = get_engine(app)
     feature_columns = get_feature_columns(app)
-    threshold = get_threshold(app)
+    baseline_threshold = get_threshold(app)
 
     validate_features(payload.features, feature_columns)
 
     request_id = payload.request_id or str(uuid.uuid4())
+    runtime_policy = get_runtime_policy(app, segment_key=payload.segment_key)
+    threshold = float(runtime_policy["threshold"])
     started_at = time.perf_counter()
     row = {column: payload.features[column] for column in feature_columns}
     X = build_inference_frame(payload.features, feature_columns)
@@ -1063,6 +1151,21 @@ def predict(payload: PredictRequest) -> PredictResponse:
         ) from exc
 
     pred_label = int(score >= threshold)
+    manual_review_required = should_route_to_manual_review(
+        request_id,
+        float(runtime_policy["manual_review_probability"]),
+    )
+    decision_status: Literal["predicted", "manual_review"] = (
+        "manual_review" if manual_review_required else "predicted"
+    )
+    decision_source: Literal[
+        "model", "threshold_tightening", "manual_review"
+    ] = "model"
+    if threshold > baseline_threshold:
+        decision_source = "threshold_tightening"
+    if manual_review_required:
+        decision_source = "manual_review"
+
     latency_ms = (time.perf_counter() - started_at) * 1000.0
 
     try:
@@ -1075,6 +1178,9 @@ def predict(payload: PredictRequest) -> PredictResponse:
             threshold=threshold,
             segment_key=payload.segment_key,
             latency_ms=latency_ms,
+            decision_status=decision_status,
+            decision_source=decision_source,
+            applied_action_ids=cast(list[int], runtime_policy["action_ids"]),
         )
     except IntegrityError as exc:
         logger.warning("Duplicate request_id rejected: %s", request_id)
@@ -1098,14 +1204,18 @@ def predict(payload: PredictRequest) -> PredictResponse:
     logger.info(
         (
             "Prediction served. request_id=%s model_version=%s "
-            "score=%.4f label=%s latency_ms=%.2f segment_key=%s"
+            "score=%.4f label=%s decision_status=%s decision_source=%s "
+            "latency_ms=%.2f segment_key=%s action_ids=%s"
         ),
         request_id,
         settings.model_version,
         score,
         pred_label,
+        decision_status,
+        decision_source,
         latency_ms,
         payload.segment_key,
+        runtime_policy["action_ids"],
     )
 
     return PredictResponse(
@@ -1113,8 +1223,11 @@ def predict(payload: PredictRequest) -> PredictResponse:
         model_version=settings.model_version,
         score=score,
         threshold=threshold,
-        predicted_label=pred_label,
+        predicted_label=None if manual_review_required else pred_label,
         segment_key=payload.segment_key,
+        decision_status=decision_status,
+        decision_source=decision_source,
+        applied_action_ids=cast(list[int], runtime_policy["action_ids"]),
     )
 
 
@@ -1280,4 +1393,65 @@ def get_monitoring_incidents(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch monitoring incidents: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/monitoring/actions/execute",
+    response_model=MonitoringActionResponse,
+)
+def execute_monitoring_action_endpoint(
+    payload: MonitoringActionExecuteRequest,
+) -> MonitoringActionResponse:
+    """Execute or simulate one monitoring reaction action."""
+
+    engine = get_engine(app)
+
+    try:
+        action = execute_monitoring_action(
+            engine,
+            incident_id=payload.incident_id,
+            action_type=payload.action_type,
+            dry_run=payload.mode != "real",
+            threshold_step=payload.threshold_step,
+            manual_review_probability=payload.manual_review_probability,
+            trigger_reason=payload.trigger_reason,
+        )
+        return build_monitoring_action_response(action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to execute monitoring action.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to execute monitoring action: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/monitoring/actions/rollback",
+    response_model=MonitoringActionResponse,
+)
+def rollback_monitoring_action_endpoint(
+    payload: MonitoringActionRollbackRequest,
+) -> MonitoringActionResponse:
+    """Rollback one active monitoring action."""
+
+    engine = get_engine(app)
+
+    try:
+        action = rollback_monitoring_action(
+            engine,
+            action_id=payload.action_id,
+            dry_run=payload.mode != "real",
+            trigger_reason=payload.trigger_reason,
+        )
+        return build_monitoring_action_response(action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to rollback monitoring action.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to rollback monitoring action: {exc}",
         ) from exc

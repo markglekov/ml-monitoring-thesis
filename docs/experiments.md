@@ -261,6 +261,50 @@ Expected outcome:
 - only the affected segment should open drift or quality incidents
 - the overview should show segment-local activity and active incidents
 
+### Automated Reaction Engine
+
+The project now supports a minimal but real action engine instead of only
+storing textual `recommended_action` values in incidents.
+
+Configuration:
+
+- `REACTION_ENGINE_MODE=dry_run` keeps creating audit records in
+  `monitoring_actions` but does not change live inference behavior.
+- `REACTION_ENGINE_MODE=real` activates the runtime policy used by `/predict`.
+
+Two safe reactions are implemented:
+
+- `tighten_threshold`: temporarily raise the operating threshold
+- `manual_review`: route some or all requests to manual review
+
+To exercise the API explicitly:
+
+```bash
+curl -X POST http://localhost:8000/monitoring/actions/execute \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "incident_id": 1,
+    "action_type": "tighten_threshold",
+    "mode": "real"
+  }'
+
+curl -X POST http://localhost:8000/monitoring/actions/rollback \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "action_id": 1,
+    "mode": "real"
+  }'
+```
+
+Expected outcome:
+
+- a row should be created in `monitoring_actions`
+- in `real` mode, critical quality incidents should tighten the threshold
+- in `real` mode, critical drift incidents should route matching requests to
+  `manual_review`
+- rollback should mark the original action as ended and create a rollback audit
+  record
+
 ## Where Results Are Saved
 
 - Raw prediction events: `inference_log`
@@ -268,6 +312,7 @@ Expected outcome:
 - Drift runs: `monitoring_runs`, `drift_metrics`
 - Quality runs: `quality_runs`, `quality_metrics`, `quality_estimates`
 - Monitoring incidents: `monitoring_incidents`
+- Automated reactions: `monitoring_actions`
 - Simulator manifests: `artifacts/reports/manifests/`
 
 ## How To Inspect Results
@@ -278,6 +323,8 @@ Overview and monitoring APIs:
 - `GET /monitoring/drift/runs?limit=10`
 - `GET /monitoring/quality/runs?limit=10`
 - `GET /monitoring/incidents?limit=10`
+- `POST /monitoring/actions/execute`
+- `POST /monitoring/actions/rollback`
 
 Prometheus / Grafana:
 

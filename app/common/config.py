@@ -74,6 +74,11 @@ class Settings:
     model_version: str
     monitoring_segments: tuple[str, ...]
     scheduler_include_global_segment: bool
+    reaction_engine_enabled: bool
+    reaction_engine_mode: str
+    reaction_threshold_step: float
+    reaction_threshold_cap: float
+    reaction_manual_review_probability: float
 
     api_host: str
     api_port: int
@@ -113,6 +118,15 @@ settings = Settings(
     monitoring_segments=_get_list_env("MONITORING_SEGMENTS", default=()),
     scheduler_include_global_segment=_get_bool_env(
         "SCHEDULER_INCLUDE_GLOBAL_SEGMENT", default=True
+    ),
+    reaction_engine_enabled=_get_bool_env(
+        "REACTION_ENGINE_ENABLED", default=True
+    ),
+    reaction_engine_mode=_get_env("REACTION_ENGINE_MODE", "dry_run"),
+    reaction_threshold_step=_get_float_env("REACTION_THRESHOLD_STEP", 0.05),
+    reaction_threshold_cap=_get_float_env("REACTION_THRESHOLD_CAP", 0.95),
+    reaction_manual_review_probability=_get_float_env(
+        "REACTION_MANUAL_REVIEW_PROBABILITY", 1.0
     ),
     api_host=_get_env("API_HOST", "0.0.0.0"),
     api_port=_get_int_env("API_PORT", 8000),

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 from sqlalchemy import text
 
 from app.api import main
 from app.common import metrics
+from app.monitoring import reaction_engine
 
 
 def _full_feature_payload(**overrides: object) -> dict[str, object]:
@@ -49,6 +51,12 @@ def _mock_data_quality_feature_profiles(
             },
         },
     )
+
+
+class DummyOnlineModel:
+    def predict_proba(self, X):
+        score = 0.9 if float(X.iloc[0]["age"]) >= 30 else 0.1
+        return np.array([[1.0 - score, score]])
 
 
 @pytest.mark.integration
@@ -571,3 +579,181 @@ def test_refresh_monitoring_gauges_exports_recent_data_quality_metrics(
         '{feature_name="contact",model_version="bank_marketing_v1"} 0.5'
         in exposition
     )
+
+
+@pytest.mark.integration
+def test_execute_monitoring_action_persists_action_row(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_engine,
+) -> None:
+    with postgres_engine.begin() as connection:
+        incident_id = connection.execute(
+            text(
+                """
+                INSERT INTO monitoring_incidents (
+                    incident_key,
+                    source_type,
+                    model_version,
+                    segment_key,
+                    status,
+                    severity,
+                    title,
+                    recommended_action,
+                    summary_json,
+                    latest_run_id
+                )
+                VALUES (
+                    'quality:segment-react',
+                    'quality',
+                    :model_version,
+                    'segment-react',
+                    'open',
+                    'critical',
+                    'Quality degradation detected',
+                    'Temporarily tighten threshold.',
+                    CAST(:summary_json AS JSONB),
+                    1
+                )
+                RETURNING id
+                """
+            ),
+            {
+                "model_version": main.settings.model_version,
+                "summary_json": '{"severity": "critical"}',
+            },
+        ).scalar_one()
+
+    monkeypatch.setattr(
+        reaction_engine, "load_baseline_threshold", lambda: 0.5
+    )
+
+    action = reaction_engine.execute_monitoring_action(
+        postgres_engine,
+        incident_id=int(incident_id),
+        action_type="tighten_threshold",
+        dry_run=False,
+    )
+
+    with postgres_engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT
+                        action_type,
+                        status,
+                        ended_at,
+                        old_config,
+                        new_config
+                    FROM monitoring_actions
+                    WHERE action_id = :action_id
+                    """
+                ),
+                {"action_id": action["action_id"]},
+            )
+            .mappings()
+            .one()
+        )
+
+    assert row["action_type"] == "tighten_threshold"
+    assert row["status"] == "executed"
+    assert row["ended_at"] is None
+    assert row["old_config"]["threshold"] == 0.5
+    assert row["new_config"]["threshold"] == 0.55
+
+
+@pytest.mark.integration
+def test_predict_applies_executed_manual_review_action(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_engine,
+) -> None:
+    main.app.state.engine = postgres_engine
+    main.app.state.model = DummyOnlineModel()
+    main.app.state.feature_columns = ["age", "job"]
+    main.app.state.threshold = 0.5
+
+    with postgres_engine.begin() as connection:
+        incident_id = connection.execute(
+            text(
+                """
+                INSERT INTO monitoring_incidents (
+                    incident_key,
+                    source_type,
+                    model_version,
+                    segment_key,
+                    status,
+                    severity,
+                    title,
+                    recommended_action,
+                    summary_json,
+                    latest_run_id
+                )
+                VALUES (
+                    'drift:segment-review',
+                    'drift',
+                    :model_version,
+                    'segment-review',
+                    'open',
+                    'critical',
+                    'Drift monitoring signal',
+                    'Route requests to manual review.',
+                    CAST(:summary_json AS JSONB),
+                    2
+                )
+                RETURNING id
+                """
+            ),
+            {
+                "model_version": main.settings.model_version,
+                "summary_json": '{"severity": "critical"}',
+            },
+        ).scalar_one()
+
+    monkeypatch.setattr(
+        reaction_engine, "load_baseline_threshold", lambda: 0.5
+    )
+    monkeypatch.setattr(main, "record_prediction", lambda **kwargs: None)
+
+    action = reaction_engine.execute_monitoring_action(
+        postgres_engine,
+        incident_id=int(incident_id),
+        action_type="manual_review",
+        dry_run=False,
+    )
+
+    response = main.predict(
+        main.PredictRequest(
+            request_id="aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+            segment_key="segment-review",
+            features={"age": 42, "job": "admin"},
+        )
+    )
+
+    with postgres_engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT
+                        decision_status,
+                        decision_source,
+                        applied_action_ids
+                    FROM inference_log
+                    WHERE request_id::text = :request_id
+                    """
+                ),
+                {
+                    "request_id": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+                },
+            )
+            .mappings()
+            .one()
+        )
+
+    assert response.predicted_label is None
+    assert response.decision_status == "manual_review"
+    assert response.decision_source == "manual_review"
+    assert response.applied_action_ids == [action["action_id"]]
+    assert row["decision_status"] == "manual_review"
+    assert row["decision_source"] == "manual_review"
+    assert row["applied_action_ids"] == [action["action_id"]]

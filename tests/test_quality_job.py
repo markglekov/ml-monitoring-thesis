@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.monitoring import quality_job
+
+
+class DummyEngine:
+    def dispose(self) -> None:
+        return None
 
 
 def test_compute_quality_metrics_handles_single_class_window() -> None:
@@ -112,3 +118,71 @@ def test_compute_proxy_quality_metrics_adds_score_psi() -> None:
     assert metrics["score_psi"] is not None
     assert metrics["near_threshold_rate"] is not None
     assert details["score_psi"]["score_ks_pvalue"] is not None
+
+
+def test_run_quality_job_triggers_reaction_engine_for_critical_incident(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labeled_window_df = pd.DataFrame(
+        {
+            "y_true": [0] * 15 + [1] * 5,
+            "pred_label": [1] * 15 + [0] * 5,
+            "score": [0.9] * 15 + [0.1] * 5,
+        }
+    )
+    captured_reactions: list[str] = []
+
+    monkeypatch.setattr(
+        quality_job, "create_engine", lambda *args, **kwargs: DummyEngine()
+    )
+    monkeypatch.setattr(
+        quality_job, "insert_quality_run", lambda *args, **kwargs: 33
+    )
+    monkeypatch.setattr(quality_job, "finalize_quality_run", lambda **_: None)
+    monkeypatch.setattr(
+        quality_job, "insert_quality_metrics", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        quality_job, "insert_quality_estimates", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        quality_job, "load_labeled_window", lambda *a, **k: labeled_window_df
+    )
+    monkeypatch.setattr(
+        quality_job,
+        "load_baseline_profile",
+        lambda: {
+            "threshold": 0.5,
+            "test_metrics": {
+                "roc_auc": 0.95,
+                "pr_auc": 0.95,
+                "precision": 0.90,
+                "recall": 0.90,
+                "f1": 0.90,
+                "brier_score": 0.10,
+                "ece": 0.05,
+                "positive_rate_pred": 0.25,
+                "positive_rate_true": 0.25,
+            },
+            "test_proxy_metrics": {},
+        },
+    )
+    monkeypatch.setattr(
+        quality_job, "sync_monitoring_incident", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        quality_job,
+        "maybe_execute_critical_reaction",
+        lambda engine, incident_key: captured_reactions.append(incident_key),
+    )
+
+    result = quality_job.run_quality_job(
+        window_size=20,
+        min_rows=10,
+        baseline_source="test",
+        segment_key="unit-quality",
+    )
+
+    assert result["status"] == "completed"
+    assert result["summary"]["severity"] == "critical"
+    assert captured_reactions == ["quality:unit-quality"]
