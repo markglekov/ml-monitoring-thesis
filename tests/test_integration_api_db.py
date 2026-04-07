@@ -31,6 +31,26 @@ def _full_feature_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _mock_data_quality_feature_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        metrics,
+        "_load_baseline_feature_profiles",
+        lambda: {
+            "age": {"type": "numeric", "min": 20.0, "max": 61.0},
+            "job": {
+                "type": "categorical",
+                "top_values": {"admin.": 0.2, "student": 0.1},
+            },
+            "contact": {
+                "type": "categorical",
+                "top_values": {"telephone": 0.2, "cellular": 0.7},
+            },
+        },
+    )
+
+
 @pytest.mark.integration
 def test_insert_inference_log_persists_row(postgres_engine) -> None:
     main.insert_inference_log(
@@ -502,7 +522,10 @@ def test_refresh_monitoring_gauges_exports_segment_metrics(
 @pytest.mark.integration
 def test_refresh_monitoring_gauges_exports_recent_data_quality_metrics(
     postgres_engine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _mock_data_quality_feature_profiles(monkeypatch)
+
     main.insert_inference_log(
         engine=postgres_engine,
         request_id="dddddddd-dddd-dddd-dddd-dddddddddddd",

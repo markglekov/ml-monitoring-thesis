@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.api import main
 from app.common import metrics
 
@@ -26,7 +28,31 @@ def _full_feature_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
-def test_refresh_data_quality_feature_gauges_exports_recent_rates() -> None:
+def _mock_data_quality_feature_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        metrics,
+        "_load_baseline_feature_profiles",
+        lambda: {
+            "age": {"type": "numeric", "min": 20.0, "max": 61.0},
+            "job": {
+                "type": "categorical",
+                "top_values": {"admin.": 0.2, "student": 0.1},
+            },
+            "contact": {
+                "type": "categorical",
+                "top_values": {"telephone": 0.2, "cellular": 0.7},
+            },
+        },
+    )
+
+
+def test_refresh_data_quality_feature_gauges_exports_recent_rates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_data_quality_feature_profiles(monkeypatch)
+
     metrics._refresh_data_quality_feature_gauges(
         model_version=main.settings.model_version,
         inference_feature_rows=[
