@@ -24,14 +24,19 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_runs_segment_key
 CREATE TABLE IF NOT EXISTS drift_metrics (
     id BIGSERIAL PRIMARY KEY,
     run_id BIGINT NOT NULL REFERENCES monitoring_runs(id) ON DELETE CASCADE,
+    segment_key TEXT,
     feature_name TEXT NOT NULL,
     feature_type TEXT NOT NULL,
     ks_pvalue DOUBLE PRECISION,
     chi2_pvalue DOUBLE PRECISION,
     psi_value DOUBLE PRECISION,
     detector_name TEXT NOT NULL DEFAULT 'univariate',
+    statistic DOUBLE PRECISION,
+    pvalue DOUBLE PRECISION,
     effect_size DOUBLE PRECISION,
     pvalue_adj DOUBLE PRECISION,
+    window_start TIMESTAMPTZ,
+    window_end TIMESTAMPTZ,
     severity TEXT NOT NULL DEFAULT 'none',
     recommended_action TEXT,
     drift_detected BOOLEAN NOT NULL,
@@ -39,13 +44,28 @@ CREATE TABLE IF NOT EXISTS drift_metrics (
 );
 
 ALTER TABLE drift_metrics
+    ADD COLUMN IF NOT EXISTS segment_key TEXT;
+
+ALTER TABLE drift_metrics
     ADD COLUMN IF NOT EXISTS detector_name TEXT NOT NULL DEFAULT 'univariate';
+
+ALTER TABLE drift_metrics
+    ADD COLUMN IF NOT EXISTS statistic DOUBLE PRECISION;
+
+ALTER TABLE drift_metrics
+    ADD COLUMN IF NOT EXISTS pvalue DOUBLE PRECISION;
 
 ALTER TABLE drift_metrics
     ADD COLUMN IF NOT EXISTS effect_size DOUBLE PRECISION;
 
 ALTER TABLE drift_metrics
     ADD COLUMN IF NOT EXISTS pvalue_adj DOUBLE PRECISION;
+
+ALTER TABLE drift_metrics
+    ADD COLUMN IF NOT EXISTS window_start TIMESTAMPTZ;
+
+ALTER TABLE drift_metrics
+    ADD COLUMN IF NOT EXISTS window_end TIMESTAMPTZ;
 
 ALTER TABLE drift_metrics
     ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'none';
@@ -58,6 +78,9 @@ CREATE INDEX IF NOT EXISTS idx_drift_metrics_run_id
 
 CREATE INDEX IF NOT EXISTS idx_drift_metrics_feature_name
     ON drift_metrics(feature_name);
+
+CREATE INDEX IF NOT EXISTS idx_drift_metrics_segment_key
+    ON drift_metrics(segment_key);
 
 CREATE INDEX IF NOT EXISTS idx_drift_metrics_severity
     ON drift_metrics(severity);

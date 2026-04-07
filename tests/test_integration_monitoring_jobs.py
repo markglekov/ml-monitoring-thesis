@@ -183,7 +183,16 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(
             connection.execute(
                 text(
                     """
-                    SELECT feature_name, detector_name, drift_detected
+                    SELECT
+                        feature_name,
+                        detector_name,
+                        statistic,
+                        pvalue,
+                        effect_size,
+                        window_start,
+                        window_end,
+                        segment_key,
+                        drift_detected
                     FROM drift_metrics
                     ORDER BY feature_name, detector_name
                     """
@@ -225,6 +234,27 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(
     assert ("__multivariate__", "domain_classifier") in drifted_rows
     assert ("__multivariate__", "mmd") in drifted_rows
 
+    for row in metric_rows:
+        assert row["window_start"] is not None
+        assert row["window_end"] is not None
+        assert row["segment_key"] == segment_key
+        assert row["effect_size"] is not None or not bool(
+            row["drift_detected"]
+        )
+        if str(row["detector_name"]) in {
+            "domain_classifier",
+            "mmd",
+            "wasserstein",
+            "cusum",
+            "ewma",
+            "adwin",
+            "ddm",
+            "eddm",
+        }:
+            assert row["statistic"] is not None
+        if str(row["detector_name"]) in {"domain_classifier", "mmd"}:
+            assert row["pvalue"] is not None
+
     advanced_summary_rows = result["summary"]["advanced_drift_detectors"]
     advanced_summary_detector_names = {
         str(item["detector_name"]) for item in advanced_summary_rows
@@ -240,4 +270,14 @@ def test_run_drift_job_persists_monitoring_run_and_feature_metrics(
     }
     assert all(
         bool(item["drift_detected"]) is True for item in advanced_summary_rows
+    )
+    assert all(item["statistic"] is not None for item in advanced_summary_rows)
+    assert all(
+        item["window_start"] is not None for item in advanced_summary_rows
+    )
+    assert all(
+        item["window_end"] is not None for item in advanced_summary_rows
+    )
+    assert all(
+        item["segment_key"] == segment_key for item in advanced_summary_rows
     )

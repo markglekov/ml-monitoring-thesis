@@ -259,3 +259,53 @@ def test_monitoring_overview_marks_attention_on_quality_degradation(
     assert response.severity == "critical"
     assert response.active_incidents_count == 1
     assert response.recommended_action == "Inspect labeled degradation."
+
+
+def test_get_drift_runs_preserves_advanced_detector_fields(
+    monkeypatch,
+) -> None:
+    main.app.state.engine = object()
+    advanced_detector = {
+        "feature_name": "__score",
+        "detector_name": "adwin",
+        "statistic": 0.42,
+        "pvalue": None,
+        "effect_size": 0.42,
+        "pvalue_adj": None,
+        "window_start": "2026-01-01T00:00:00+00:00",
+        "window_end": "2026-01-01T00:19:00+00:00",
+        "segment_key": "segment-a",
+        "severity": "critical",
+        "drift_detected": True,
+        "details": {"detection_index": 12},
+    }
+
+    monkeypatch.setattr(
+        main,
+        "list_drift_runs",
+        lambda engine, limit, segment_key=None: [
+            main.DriftRunResponse(
+                id=7,
+                ts_started=datetime.now(UTC),
+                ts_finished=datetime.now(UTC),
+                model_version=main.settings.model_version,
+                window_size=20,
+                segment_key=segment_key,
+                status="completed",
+                drifted_features_count=3,
+                total_features_count=4,
+                overall_drift=True,
+                summary={"advanced_drift_detectors": [advanced_detector]},
+            )
+        ],
+    )
+
+    response = main.get_drift_runs(limit=10, segment_key="segment-a")
+
+    assert response[0].summary is not None
+    detector = response[0].summary["advanced_drift_detectors"][0]
+    assert detector["detector_name"] == "adwin"
+    assert detector["statistic"] == 0.42
+    assert detector["window_start"] == "2026-01-01T00:00:00+00:00"
+    assert detector["window_end"] == "2026-01-01T00:19:00+00:00"
+    assert detector["segment_key"] == "segment-a"

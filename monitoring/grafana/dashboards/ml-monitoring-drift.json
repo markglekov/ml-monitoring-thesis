@@ -294,7 +294,7 @@
         {
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest_run AS (SELECT id, COALESCE(segment_key, '__global__') AS segment_key, ts_started FROM monitoring_runs WHERE model_version = '${model_version}' ORDER BY ts_started DESC, id DESC LIMIT 1) SELECT latest_run.segment_key, drift_metrics.feature_name, drift_metrics.feature_type, drift_metrics.detector_name, drift_metrics.effect_size, drift_metrics.pvalue_adj, drift_metrics.psi_value, drift_metrics.severity, drift_metrics.drift_detected, drift_metrics.recommended_action FROM latest_run JOIN drift_metrics ON drift_metrics.run_id = latest_run.id ORDER BY CASE drift_metrics.severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC, drift_metrics.effect_size DESC NULLS LAST, drift_metrics.feature_name ASC LIMIT 30",
+          "rawSql": "WITH latest_run AS (SELECT id, COALESCE(segment_key, '__global__') AS segment_key, ts_started FROM monitoring_runs WHERE model_version = '${model_version}' ORDER BY ts_started DESC, id DESC LIMIT 1) SELECT COALESCE(drift_metrics.segment_key, latest_run.segment_key) AS segment_key, drift_metrics.feature_name, drift_metrics.feature_type, drift_metrics.detector_name, drift_metrics.statistic, drift_metrics.pvalue, drift_metrics.effect_size, drift_metrics.pvalue_adj, drift_metrics.psi_value, drift_metrics.window_start, drift_metrics.window_end, drift_metrics.severity, drift_metrics.drift_detected, drift_metrics.recommended_action FROM latest_run JOIN drift_metrics ON drift_metrics.run_id = latest_run.id ORDER BY CASE drift_metrics.severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC, drift_metrics.effect_size DESC NULLS LAST, drift_metrics.feature_name ASC LIMIT 30",
           "refId": "A"
         }
       ],
@@ -343,6 +343,6 @@
   "timezone": "",
   "title": "ML Monitoring Drift Analysis",
   "uid": "ml-monitoring-drift",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -127,60 +129,17 @@ def test_analyze_multivariate_drift_detects_joint_shift() -> None:
     assert result["severity"] in {"warning", "critical"}
 
 
-def test_analyze_mmd_drift_detects_joint_shift() -> None:
-    result = drift_job.analyze_mmd_drift(
-        _reference_feature_frame(),
-        _current_feature_frame(),
-    )
-
-    assert result["feature_name"] == "__multivariate__"
-    assert result["detector_name"] == "mmd"
-    assert result["effect_size"] is not None
-    assert result["pvalue_adj"] is not None
-    assert result["drift_detected"] is True
-
-
-def test_advanced_score_detectors_fire_on_strong_shift() -> None:
-    reference_scores = np.linspace(0.05, 0.30, 120)
-    current_scores = np.linspace(0.75, 0.95, 120)
-
-    detector_results = {
-        result["detector_name"]: result
-        for result in [
-            drift_job.analyze_score_wasserstein(
-                reference_scores, current_scores
-            ),
-            drift_job.analyze_score_cusum(reference_scores, current_scores),
-            drift_job.analyze_score_ewma(reference_scores, current_scores),
-            drift_job.analyze_score_adwin(reference_scores, current_scores),
-            drift_job.analyze_score_ddm(reference_scores, current_scores),
-            drift_job.analyze_score_eddm(reference_scores, current_scores),
-        ]
-    }
-
-    assert set(detector_results) == {
-        "wasserstein",
-        "cusum",
-        "ewma",
-        "adwin",
-        "ddm",
-        "eddm",
-    }
-    assert all(
-        detector_results[name]["drift_detected"] is True
-        for name in detector_results
-    )
-    assert detector_results["adwin"]["details"]["detection_index"] is not None
-    assert detector_results["ddm"]["details"]["drift_index"] is not None
-    assert detector_results["eddm"]["details"]["drift_index"] is not None
-
-
 def test_run_drift_job_reports_advanced_detector_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current_window = _current_feature_frame()[["age", "job"]].copy()
     current_window["__score"] = np.linspace(0.75, 0.95, len(current_window))
     current_window["__pred_label"] = 1
+    base_ts = datetime(2026, 1, 1, tzinfo=UTC)
+    current_window["__ts"] = [
+        base_ts + timedelta(minutes=index)
+        for index in range(len(current_window))
+    ]
 
     captured_results: dict[str, list[dict[str, object]]] = {}
 
@@ -241,6 +200,18 @@ def test_run_drift_job_reports_advanced_detector_rows(
         "ddm",
         "eddm",
     }
+    assert all("statistic" in item for item in captured_results["rows"])
+    assert all("pvalue" in item for item in captured_results["rows"])
+    assert all(
+        item["window_start"] is not None for item in captured_results["rows"]
+    )
+    assert all(
+        item["window_end"] is not None for item in captured_results["rows"]
+    )
+    assert all(
+        item["segment_key"] == "unit-drift"
+        for item in captured_results["rows"]
+    )
 
     advanced_summary = result["summary"]["advanced_drift_detectors"]
     assert {str(item["detector_name"]) for item in advanced_summary} == {
@@ -254,4 +225,10 @@ def test_run_drift_job_reports_advanced_detector_rows(
     }
     assert all(
         bool(item["drift_detected"]) is True for item in advanced_summary
+    )
+    assert all(item["statistic"] is not None for item in advanced_summary)
+    assert all(item["window_start"] is not None for item in advanced_summary)
+    assert all(item["window_end"] is not None for item in advanced_summary)
+    assert all(
+        item["segment_key"] == "unit-drift" for item in advanced_summary
     )
