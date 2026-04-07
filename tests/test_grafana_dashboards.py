@@ -53,3 +53,31 @@ def test_proxy_dashboard_includes_label_coverage_panel() -> None:
     assert target["format"] == "time_series"
     assert "LEFT JOIN ground_truth" in target["rawSql"]
     assert "COUNT(gt.request_id)" in target["rawSql"]
+
+
+def test_quality_dashboard_includes_data_quality_block() -> None:
+    quality_dashboard = _load_dashboard("ml-monitoring-quality.json")
+
+    missing_panel = _find_panel(
+        quality_dashboard, "Recent Missing Rate By Feature"
+    )
+    range_panel = _find_panel(
+        quality_dashboard, "Recent Out-Of-Range Rate By Feature"
+    )
+    category_panel = _find_panel(
+        quality_dashboard, "Recent Unknown Category Rate"
+    )
+
+    assert quality_dashboard["version"] >= 3
+    assert (
+        "ml_monitoring_data_quality_feature_missing_rate"
+        in missing_panel["targets"][0]["expr"]
+    )
+    assert (
+        "ml_monitoring_data_quality_numeric_out_of_range_rate"
+        in range_panel["targets"][0]["expr"]
+    )
+    assert (
+        "ml_monitoring_data_quality_unknown_category_rate"
+        in category_panel["targets"][0]["expr"]
+    )

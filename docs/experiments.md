@@ -264,7 +264,9 @@ Use the dashboards in this order during the defense:
 2. Open the drift dashboard and compare baseline-like, mild, and severe drift.
    Show the segment table and the `__multivariate__` detector row.
 3. Open the quality dashboard to explain labeled degradation, threshold effects,
-   and calibration changes through `roc_auc`, `f1`, `brier_score`, and `ece`.
+   calibration changes through `roc_auc`, `f1`, `brier_score`, and `ece`, then
+   use the data quality block for missing values, out-of-range numerics, and
+   unexpected categories.
 4. Open the proxy dashboard to demonstrate the blind period where labels are not
    available yet. Show `Label Coverage Over Time` first, then explain how
    `score_psi`, `near_threshold_rate`, or `score_entropy` already react before
