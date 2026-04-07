@@ -9,9 +9,21 @@ CREATE TABLE IF NOT EXISTS inference_log (
     score DOUBLE PRECISION NOT NULL,
     pred_label INTEGER NOT NULL,
     threshold DOUBLE PRECISION NOT NULL,
+    decision_status TEXT NOT NULL DEFAULT 'predicted',
+    decision_source TEXT NOT NULL DEFAULT 'model',
+    applied_action_ids JSONB,
     segment_key TEXT,
     latency_ms DOUBLE PRECISION NOT NULL
 );
+
+ALTER TABLE inference_log
+    ADD COLUMN IF NOT EXISTS decision_status TEXT NOT NULL DEFAULT 'predicted';
+
+ALTER TABLE inference_log
+    ADD COLUMN IF NOT EXISTS decision_source TEXT NOT NULL DEFAULT 'model';
+
+ALTER TABLE inference_log
+    ADD COLUMN IF NOT EXISTS applied_action_ids JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_inference_log_ts
     ON inference_log(ts);

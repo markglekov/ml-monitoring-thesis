@@ -36,6 +36,7 @@ from app.monitoring.incidents import (
     highest_severity,
     sync_monitoring_incident,
 )
+from app.monitoring.reaction_engine import maybe_execute_critical_reaction
 
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_DATA_PATH = ROOT / "data" / "processed" / "train.csv"
@@ -1163,9 +1164,10 @@ def run_drift_job(
             overall_drift,
             overall_severity,
         )
+        incident_key = build_incident_key("drift", segment_key)
         sync_monitoring_incident(
             engine,
-            incident_key=build_incident_key("drift", segment_key),
+            incident_key=incident_key,
             source_type="drift",
             model_version=settings.model_version,
             segment_key=segment_key,
@@ -1179,6 +1181,7 @@ def run_drift_job(
             },
             latest_run_id=run_id,
         )
+        maybe_execute_critical_reaction(engine, incident_key=incident_key)
         return {
             "run_id": run_id,
             "status": "completed",
@@ -1199,9 +1202,10 @@ def run_drift_job(
             overall_drift=False,
             summary={"error": str(exc)},
         )
+        incident_key = build_incident_key("drift", segment_key)
         sync_monitoring_incident(
             engine,
-            incident_key=build_incident_key("drift", segment_key),
+            incident_key=incident_key,
             source_type="drift",
             model_version=settings.model_version,
             segment_key=segment_key,
@@ -1214,6 +1218,7 @@ def run_drift_job(
             summary={"error": str(exc), "run_id": run_id},
             latest_run_id=run_id,
         )
+        maybe_execute_critical_reaction(engine, incident_key=incident_key)
         raise
     finally:
         engine.dispose()

@@ -118,3 +118,22 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_incidents_source_type
 
 CREATE INDEX IF NOT EXISTS idx_monitoring_incidents_segment_key
     ON monitoring_incidents(segment_key);
+
+CREATE TABLE IF NOT EXISTS monitoring_actions (
+    action_id BIGSERIAL PRIMARY KEY,
+    incident_id BIGINT NOT NULL REFERENCES monitoring_incidents(id)
+        ON DELETE CASCADE,
+    action_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMPTZ,
+    trigger_reason TEXT NOT NULL,
+    old_config JSONB,
+    new_config JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_actions_incident_id
+    ON monitoring_actions(incident_id);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_actions_status
+    ON monitoring_actions(status);
