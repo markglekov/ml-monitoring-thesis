@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, Literal
 
 from prometheus_client import (
@@ -14,6 +16,8 @@ from prometheus_client import (
 )
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+from app.common.config import settings
 
 HTTP_REQUESTS_TOTAL = Counter(
     "ml_monitoring_http_requests_total",
@@ -221,6 +225,24 @@ ACTIVE_INCIDENTS_BY_SEGMENT = Gauge(
     ["model_version", "segment_key", "source_type", "severity"],
 )
 
+DATA_QUALITY_FEATURE_MISSING_RATE = Gauge(
+    "ml_monitoring_data_quality_feature_missing_rate",
+    "Recent missing-value rate per feature in the inference stream.",
+    ["model_version", "feature_name"],
+)
+
+DATA_QUALITY_NUMERIC_OUT_OF_RANGE_RATE = Gauge(
+    "ml_monitoring_data_quality_numeric_out_of_range_rate",
+    "Recent out-of-range rate for numeric features in the inference stream.",
+    ["model_version", "feature_name"],
+)
+
+DATA_QUALITY_UNKNOWN_CATEGORY_RATE = Gauge(
+    "ml_monitoring_data_quality_unknown_category_rate",
+    "Recent unexpected-category rate for categorical features.",
+    ["model_version", "feature_name"],
+)
+
 GLOBAL_SEGMENT_KEY = "__global__"
 KNOWN_SEVERITIES: tuple[str, ...] = ("none", "warning", "critical")
 
@@ -291,6 +313,123 @@ def _seconds_since(value: datetime | None) -> float:
     now = datetime.now(UTC)
     delta = now - value
     return max(delta.total_seconds(), 0.0)
+
+
+@lru_cache(maxsize=1)
+def _load_baseline_feature_profiles() -> dict[str, dict[str, Any]]:
+    """Load feature expectations from the saved baseline profile."""
+
+    baseline_path = settings.baseline_path
+    if not baseline_path.exists():
+        return {}
+
+    with baseline_path.open("r", encoding="utf-8") as file_obj:
+        baseline_profile = json.load(file_obj)
+
+    features = baseline_profile.get("features", {})
+    if not isinstance(features, dict):
+        return {}
+
+    return {
+        str(feature_name): profile
+        for feature_name, profile in features.items()
+        if isinstance(profile, dict)
+    }
+
+
+def _is_missing_feature_value(value: Any) -> bool:
+    """Treat empty strings and null-like values as missing feature inputs."""
+
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"", "nan", "null", "none"}
+    return False
+
+
+def _to_float(value: Any) -> float | None:
+    """Convert arbitrary numeric-like values into floats."""
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _refresh_data_quality_feature_gauges(
+    *,
+    model_version: str,
+    inference_feature_rows: list[dict[str, Any]],
+) -> None:
+    """Refresh recent missing/out-of-range/category quality gauges."""
+
+    DATA_QUALITY_FEATURE_MISSING_RATE.clear()
+    DATA_QUALITY_NUMERIC_OUT_OF_RANGE_RATE.clear()
+    DATA_QUALITY_UNKNOWN_CATEGORY_RATE.clear()
+
+    if not inference_feature_rows:
+        return
+
+    feature_profiles = _load_baseline_feature_profiles()
+    if not feature_profiles:
+        return
+
+    total_rows = float(len(inference_feature_rows))
+    missing_counts = {feature_name: 0 for feature_name in feature_profiles}
+    out_of_range_counts: dict[str, int] = {}
+    unknown_category_counts: dict[str, int] = {}
+    expected_categories: dict[str, set[str]] = {}
+
+    for feature_name, profile in feature_profiles.items():
+        if profile.get("type") == "numeric":
+            out_of_range_counts[feature_name] = 0
+        elif profile.get("type") == "categorical":
+            unknown_category_counts[feature_name] = 0
+            expected_categories[feature_name] = {
+                str(category) for category in profile.get("top_values", {})
+            }
+
+    for features in inference_feature_rows:
+        for feature_name, profile in feature_profiles.items():
+            value = features.get(feature_name)
+            if _is_missing_feature_value(value):
+                missing_counts[feature_name] += 1
+                continue
+
+            if profile.get("type") == "numeric":
+                numeric_value = _to_float(value)
+                if numeric_value is None:
+                    out_of_range_counts[feature_name] += 1
+                    continue
+
+                min_value = _to_float(profile.get("min"))
+                max_value = _to_float(profile.get("max"))
+                if (min_value is not None and numeric_value < min_value) or (
+                    max_value is not None and numeric_value > max_value
+                ):
+                    out_of_range_counts[feature_name] += 1
+            elif profile.get("type") == "categorical":
+                allowed_values = expected_categories.get(feature_name, set())
+                if allowed_values and str(value) not in allowed_values:
+                    unknown_category_counts[feature_name] += 1
+
+    for feature_name, count in missing_counts.items():
+        DATA_QUALITY_FEATURE_MISSING_RATE.labels(
+            model_version=model_version,
+            feature_name=feature_name,
+        ).set(float(count) / total_rows)
+
+    for feature_name, count in out_of_range_counts.items():
+        DATA_QUALITY_NUMERIC_OUT_OF_RANGE_RATE.labels(
+            model_version=model_version,
+            feature_name=feature_name,
+        ).set(float(count) / total_rows)
+
+    for feature_name, count in unknown_category_counts.items():
+        DATA_QUALITY_UNKNOWN_CATEGORY_RATE.labels(
+            model_version=model_version,
+            feature_name=feature_name,
+        ).set(float(count) / total_rows)
 
 
 def _refresh_status_gauge(
@@ -384,6 +523,9 @@ def _clear_monitoring_gauges(model_version: str) -> None:
     QUALITY_SEGMENT_LAST_METRIC_BASELINE.clear()
     QUALITY_SEGMENT_LAST_METRIC_DELTA.clear()
     ACTIVE_INCIDENTS_BY_SEGMENT.clear()
+    DATA_QUALITY_FEATURE_MISSING_RATE.clear()
+    DATA_QUALITY_NUMERIC_OUT_OF_RANGE_RATE.clear()
+    DATA_QUALITY_UNKNOWN_CATEGORY_RATE.clear()
 
     _refresh_status_gauge(
         DRIFT_LAST_RUN_STATUS, model_version=model_version, status="unknown"
@@ -638,6 +780,18 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
         """
     )
 
+    recent_inference_features_query = text(
+        """
+        SELECT features_json
+        FROM inference_log
+        WHERE
+            model_version = :model_version
+            AND ts >= NOW() - INTERVAL '24 hours'
+        ORDER BY ts DESC, id DESC
+        LIMIT 2000
+        """
+    )
+
     with engine.connect() as connection:
         query_params = {
             "model_version": model_version,
@@ -688,6 +842,14 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             .mappings()
             .all()
         )
+        recent_inference_rows = (
+            connection.execute(
+                recent_inference_features_query,
+                {"model_version": model_version},
+            )
+            .mappings()
+            .all()
+        )
 
     DRIFT_LAST_RUN_AGE_SECONDS.clear()
     DRIFT_LAST_RUN_DRIFTED_FEATURES.clear()
@@ -714,9 +876,24 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
     QUALITY_SEGMENT_LAST_METRIC_BASELINE.clear()
     QUALITY_SEGMENT_LAST_METRIC_DELTA.clear()
     ACTIVE_INCIDENTS_BY_SEGMENT.clear()
+    DATA_QUALITY_FEATURE_MISSING_RATE.clear()
+    DATA_QUALITY_NUMERIC_OUT_OF_RANGE_RATE.clear()
+    DATA_QUALITY_UNKNOWN_CATEGORY_RATE.clear()
 
-    if drift_row is None and quality_row is None:
+    inference_feature_rows = [
+        row["features_json"]
+        for row in recent_inference_rows
+        if isinstance(row.get("features_json"), dict)
+    ]
+
+    no_monitoring_runs = drift_row is None and quality_row is None
+
+    if no_monitoring_runs:
         _clear_monitoring_gauges(model_version=model_version)
+        _refresh_data_quality_feature_gauges(
+            model_version=model_version,
+            inference_feature_rows=inference_feature_rows,
+        )
         return
 
     if drift_row is not None:
@@ -920,6 +1097,11 @@ def refresh_monitoring_gauges(engine: Engine, model_version: str) -> None:
             model_version=model_version,
             severity=severity,
         ).set(1.0 if severity == overview_severity else 0.0)
+
+    _refresh_data_quality_feature_gauges(
+        model_version=model_version,
+        inference_feature_rows=inference_feature_rows,
+    )
 
 
 def render_metrics() -> bytes:

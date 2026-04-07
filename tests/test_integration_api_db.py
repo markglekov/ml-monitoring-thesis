@@ -9,6 +9,28 @@ from app.api import main
 from app.common import metrics
 
 
+def _full_feature_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "age": 42,
+        "job": "admin.",
+        "marital": "single",
+        "education": "secondary",
+        "default": "no",
+        "balance": 1200.0,
+        "housing": "yes",
+        "loan": "no",
+        "contact": "telephone",
+        "day_of_week": 15,
+        "month": "may",
+        "campaign": 1,
+        "pdays": -1,
+        "previous": 0,
+        "poutcome": "unknown",
+    }
+    payload.update(overrides)
+    return payload
+
+
 @pytest.mark.integration
 def test_insert_inference_log_persists_row(postgres_engine) -> None:
     main.insert_inference_log(
@@ -474,4 +496,55 @@ def test_refresh_monitoring_gauges_exports_segment_metrics(
         "ml_monitoring_active_incidents_by_segment"
         '{model_version="bank_marketing_v1",segment_key="segment-a",'
         'severity="warning",source_type="quality"} 1.0' in exposition
+    )
+
+
+@pytest.mark.integration
+def test_refresh_monitoring_gauges_exports_recent_data_quality_metrics(
+    postgres_engine,
+) -> None:
+    main.insert_inference_log(
+        engine=postgres_engine,
+        request_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+        features=_full_feature_payload(),
+        score=0.88,
+        pred_label=1,
+        threshold=0.5,
+        segment_key="segment-d",
+        latency_ms=9.0,
+    )
+    main.insert_inference_log(
+        engine=postgres_engine,
+        request_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        features=_full_feature_payload(
+            age=120,
+            job=None,
+            contact="satellite",
+        ),
+        score=0.21,
+        pred_label=0,
+        threshold=0.5,
+        segment_key="segment-d",
+        latency_ms=11.0,
+    )
+
+    metrics.refresh_monitoring_gauges(
+        postgres_engine, model_version=main.settings.model_version
+    )
+    exposition = metrics.render_metrics().decode("utf-8")
+
+    assert (
+        "ml_monitoring_data_quality_feature_missing_rate"
+        '{feature_name="job",model_version="bank_marketing_v1"} 0.5'
+        in exposition
+    )
+    assert (
+        "ml_monitoring_data_quality_numeric_out_of_range_rate"
+        '{feature_name="age",model_version="bank_marketing_v1"} 0.5'
+        in exposition
+    )
+    assert (
+        "ml_monitoring_data_quality_unknown_category_rate"
+        '{feature_name="contact",model_version="bank_marketing_v1"} 0.5'
+        in exposition
     )
