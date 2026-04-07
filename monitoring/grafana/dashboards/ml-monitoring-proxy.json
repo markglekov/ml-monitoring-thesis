@@ -15,6 +15,7 @@
       }
     ]
   },
+  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -275,11 +276,11 @@
               },
               {
                 "color": "orange",
-                "value": 1
+                "value": 0.2
               },
               {
                 "color": "red",
-                "value": 2
+                "value": 0.35
               }
             ]
           },
@@ -446,6 +447,6 @@
   "timezone": "",
   "title": "ML Monitoring Blind Period Proxy Signals",
   "uid": "ml-monitoring-proxy",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

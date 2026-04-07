@@ -15,6 +15,7 @@
       }
     ]
   },
+  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -341,6 +342,6 @@
   "timezone": "",
   "title": "ML Monitoring Segments And Incidents",
   "uid": "ml-monitoring-segments",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
