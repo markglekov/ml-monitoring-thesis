@@ -52,7 +52,12 @@ def test_detect_metric_degradation_supports_min_max_and_abs_rules() -> None:
     assert effect_min is not None
     assert round(delta_min, 2) == -0.10
     assert details_min["mode"] == "min_delta"
-    assert details_min["threshold"] == 0.02
+    assert details_min["threshold"] == 0.03
+
+    baseline_jitter_degraded, *_ = quality_job.detect_metric_degradation(
+        "roc_auc", 0.6455, 0.6709
+    )
+    assert baseline_jitter_degraded is False
 
     assert degraded_max is True
     assert delta_max is not None

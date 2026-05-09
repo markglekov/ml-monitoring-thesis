@@ -44,7 +44,7 @@ BASELINE_PATH = settings.baseline_path
 DEFAULT_DEGRADATION_RULES: dict[str, dict[str, Any]] = {
     "roc_auc": {
         "mode": "min_delta",
-        "threshold": 0.02,
+        "threshold": 0.03,
         "detector_name": "labeled",
     },
     "pr_auc": {

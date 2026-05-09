@@ -130,8 +130,8 @@ FROM monitoring_incidents
 ORDER BY ts_updated DESC
 LIMIT 20;
 
-SELECT action_id, incident_id, action_type, status, dry_run,
-       old_config_json, new_config_json, started_at, ended_at
+SELECT action_id, incident_id, action_type, status,
+       old_config, new_config, started_at, ended_at
 FROM monitoring_actions
 ORDER BY action_id DESC
 LIMIT 20;

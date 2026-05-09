@@ -47,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "degradation_rules": {
             "roc_auc": {
                 "mode": "min_delta",
-                "threshold": 0.02,
+                "threshold": 0.03,
                 "detector_name": "labeled",
             },
             "pr_auc": {

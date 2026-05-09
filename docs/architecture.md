@@ -167,3 +167,16 @@ flowchart TB
 - Runbook делает алерты actionable:
   `docs/runbook.md` связывает warning/critical drift, quality и proxy-сигналы
   с проверками, SQL/API/Grafana шагами и решениями по эскалации.
+
+## Рассмотренные альтернативы
+
+- Evidently подходит для быстрого построения готовых drift/data-quality
+  отчетов, но в проекте нужен прозрачный контур с собственными SQL-таблицами,
+  severity rules, Alertmanager-алертами и операторскими действиями. Поэтому
+  детекторы реализованы внутри `app.monitoring`, а результаты сохраняются в
+  PostgreSQL и Prometheus.
+- MLflow полезен как experiment tracking/model registry, но прототип
+  фокусируется на serving и runtime monitoring. Версионирование здесь
+  минимальное: модель, baseline profile и `MODEL_VERSION` хранятся как
+  воспроизводимые артефакты проекта. Полноценный model registry оставлен за
+  рамками, чтобы не усложнять demo-инфраструктуру.

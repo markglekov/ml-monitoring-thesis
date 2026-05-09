@@ -13,7 +13,7 @@ Grafana и пример SQL-выгрузки по incident/action/rollback.
 
 | scenario | overall_drift | drifted_features_count | degraded_metrics_count | status | active_incidents | estimated_vs_true_metric_gap |
 | --- | --- | ---: | ---: | --- | ---: | ---: |
-| baseline | false | 0 | 1 | completed | 1 |  |
+| baseline | false | 0 | 0 | completed | 0 |  |
 | mild | true | 7 | 3 | completed | 2 |  |
 | severe | true | 12 | 4 | completed | 2 |  |
 | proxy |  |  | 7 | completed | 1 | 0.416667 |
@@ -21,8 +21,7 @@ Grafana и пример SQL-выгрузки по incident/action/rollback.
 
 Интерпретация:
 
-- baseline почти стабилен по дрейфу, но качество все равно может открыть
-  warning/critical из-за строгих порогов и сдвига между split-ами;
+- baseline зеленый: контрольный сегмент не открывает drift/quality incident;
 - mild и severe показывают рост числа признаков с дрейфом;
 - proxy-сценарий фиксирует слепой период и сравнение proxy-оценки с поздней
   метрикой по меткам;

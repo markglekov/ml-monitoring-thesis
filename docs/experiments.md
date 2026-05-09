@@ -168,7 +168,7 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
 
 Ожидаемый результат:
 
-- `degraded_metrics_count` остается близким к нулю.
+- `degraded_metrics_count=0`, quality incident не открывается.
 
 ### Слабое ухудшение качества
 

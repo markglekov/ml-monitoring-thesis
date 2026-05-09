@@ -5,10 +5,8 @@ description = "End-to-end ML monitoring thesis prototype with training, inferenc
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "evidently",
     "fastapi",
     "joblib",
-    "mlflow",
     "numpy",
     "pandas",
     "prometheus-client",
