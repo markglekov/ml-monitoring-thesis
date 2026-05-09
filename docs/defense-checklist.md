@@ -1,23 +1,23 @@
-# Defense Checklist
+# Чеклист защиты
 
-Main defense flow: four commands, three dashboards, two SQL queries, one
-incident, one rollback.
+Основной сценарий защиты: четыре команды, три дашборда, два SQL-запроса,
+один инцидент и один rollback.
 
-## Preflight
+## Перед началом
 
-- Stack is running.
-- `artifacts/reports/final/` is writable.
-- Grafana credentials: `admin/admin`.
+- Стек запущен.
+- `artifacts/reports/final/` доступен для записи.
+- Учетные данные Grafana: `admin/admin`.
 
-If the stack is stale, refresh it before the defense:
+Если стек устарел, пересоберите его перед защитой:
 
 ```bash
 docker compose up -d --build --force-recreate
 ```
 
-## Four Commands
+## Четыре команды
 
-1. Generate the final experiment pack:
+1. Сгенерировать финальный пакет экспериментов:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.reporting.export_final_artifacts \
@@ -25,13 +25,14 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.reporting.export_final_artifacts \
   --grafana-password admin
 ```
 
-2. Build the aggregated evidence table:
+2. Собрать агрегированную таблицу доказательств:
 
 ```bash
 make final-summary
 ```
 
-3. Execute a real mitigation on the latest open critical quality incident:
+3. Выполнить реальное смягчающее действие для последнего открытого
+   критического инцидента качества:
 
 ```bash
 curl -X POST http://localhost:8000/monitoring/actions/execute \
@@ -44,7 +45,7 @@ curl -X POST http://localhost:8000/monitoring/actions/execute \
   }'
 ```
 
-4. Roll the action back after the demo:
+4. Откатить действие после демонстрации:
 
 ```bash
 curl -X POST http://localhost:8000/monitoring/actions/rollback \
@@ -56,28 +57,28 @@ curl -X POST http://localhost:8000/monitoring/actions/rollback \
   }'
 ```
 
-Use `incident_id` from SQL query 2 and `action_id` returned by command 3.
+`incident_id` возьмите из SQL-запроса 2, а `action_id` из ответа команды 3.
 
-## Three Dashboards
+## Три дашборда
 
-1. Executive overview:
+1. Общий обзор:
    `http://localhost:3000/d/ml-monitoring-overview`
-   Show severity, freshness, and active incidents.
+   Покажите severity, свежесть данных и активные инциденты.
 
-2. Drift analysis:
+2. Анализ дрейфа:
    `http://localhost:3000/d/ml-monitoring-drift`
-   Show baseline vs mild vs severe and the multivariate detector row.
+   Покажите baseline, слабый/сильный дрейф и строку многомерного детектора.
 
-3. Quality and calibration:
+3. Качество и калибровка:
    `http://localhost:3000/d/ml-monitoring-quality`
-   Show labeled degradation and the data-quality block.
+   Покажите деградацию по меткам и блок data quality.
 
-For the blind-period story, use `artifacts/reports/final/proxy/` and
+Для истории слепого периода используйте `artifacts/reports/final/proxy/` и
 `artifacts/reports/final/screenshots/proxy_label_coverage.png`.
 
-## Two SQL Queries
+## Два SQL-запроса
 
-1. Show the proxy estimate against the later true labeled metric:
+1. Сравнить прокси-оценку с поздней истинной метрикой по меткам:
 
 ```sql
 WITH latest_proxy_run AS (
@@ -115,7 +116,7 @@ JOIN quality_metrics qm
 ORDER BY abs_gap DESC, qe.estimated_metric_name ASC;
 ```
 
-2. Pick the incident for the live action demo and verify the action audit:
+2. Выбрать инцидент для live-действия и проверить аудит actions:
 
 ```sql
 SELECT
@@ -138,31 +139,31 @@ ORDER BY mi.ts_updated DESC, ma.action_id DESC NULLS LAST
 LIMIT 15;
 ```
 
-## Incident To Demonstrate
+## Какой инцидент показать
 
-Use the latest open `critical` quality incident for the final proxy or severe
-scenario:
+Используйте последний открытый `critical` инцидент качества для финального
+proxy- или severe-сценария:
 
-- meaningful degradation already exists,
-- the system already has an incident,
-- `tighten_threshold` is easy to explain,
-- rollback visibly closes the loop.
+- деградация уже есть и содержательна;
+- система уже создала инцидент;
+- `tighten_threshold` легко объяснить;
+- rollback наглядно замыкает контур реагирования.
 
-## Rollback To Demonstrate
+## Какой rollback показать
 
-Rollback the exact action created in command 3. Show:
+Откатите ровно то действие, которое создали командой 3. Покажите:
 
-- returned `action_id`,
-- new rollback audit row in `monitoring_actions`,
-- `ended_at` filled for the original action,
-- restored runtime policy.
+- возвращенный `action_id`;
+- новую audit-строку rollback в `monitoring_actions`;
+- заполненный `ended_at` у исходного действия;
+- восстановленную runtime policy.
 
-## Narrative
+## Рассказ
 
-- Baseline stays stable; mild and severe scenarios degrade in the expected
-  order.
-- During the blind period, proxy signals and unlabeled estimates react before
-  delayed labels arrive.
-- Incidents are actionable: the system records a real mitigation and a real
-  rollback.
-- The evidence table is in `artifacts/reports/final/scenario_summary.md`.
+- Baseline остается стабильным; слабый и сильный сценарии деградируют в
+  ожидаемом порядке.
+- В слепом периоде прокси-сигналы и оценки без меток реагируют раньше, чем
+  приходят отложенные метки.
+- Инциденты actionable: система записывает реальное смягчающее действие и
+  реальный rollback.
+- Таблица доказательств лежит в `artifacts/reports/final/scenario_summary.md`.

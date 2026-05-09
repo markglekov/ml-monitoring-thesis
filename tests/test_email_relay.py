@@ -41,12 +41,13 @@ def test_build_subject_and_body_include_key_alert_fields() -> None:
     body = email_relay.build_body(payload)
 
     assert (
-        subject == "[FIRING] HighDrift | service=monitoring | severity=warning"
+        subject
+        == "[СРАБАТЫВАЕТ] HighDrift | service=monitoring | severity=warning"
     )
-    assert "ML Monitoring Alert" in body
-    assert "Status: FIRING" in body
+    assert "Алерт ML-мониторинга" in body
+    assert "Статус: FIRING" in body
     assert "Alertmanager URL: http://alertmanager:9093" in body
-    assert "summary: Drift exceeded threshold" in body
+    assert "описание: Drift exceeded threshold" in body
 
 
 def test_alertmanager_webhook_ignores_unconfigured_relay(monkeypatch) -> None:
@@ -79,7 +80,7 @@ def test_alertmanager_webhook_returns_sent_result(monkeypatch) -> None:
     assert response["recipients"] == ["owner@example.com"]
     assert (
         response["subject"]
-        == "[FIRING] HighDrift | service=monitoring | severity=warning"
+        == "[СРАБАТЫВАЕТ] HighDrift | service=monitoring | severity=warning"
     )
 
 

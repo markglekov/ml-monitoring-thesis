@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
+  "description": "Auto-refresh 15s включен для защиты и demo. В production batch- или window-based мониторинге согласуйте частоту обновления с расписанием задач.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -61,7 +61,7 @@
           "refId": "A"
         }
       ],
-      "title": "Score PSI History",
+      "title": "История Score PSI",
       "type": "timeseries"
     },
     {
@@ -102,7 +102,7 @@
           "refId": "A"
         }
       ],
-      "title": "Score Entropy History",
+      "title": "История энтропии score",
       "type": "timeseries"
     },
     {
@@ -143,7 +143,7 @@
           "refId": "A"
         }
       ],
-      "title": "Near Threshold Rate History",
+      "title": "История доли около порога",
       "type": "timeseries"
     },
     {
@@ -184,7 +184,7 @@
           "refId": "A"
         }
       ],
-      "title": "Predicted Positive Rate History",
+      "title": "История доли positive-предсказаний",
       "type": "timeseries"
     },
     {
@@ -199,11 +199,11 @@
               "options": {
                 "0": {
                   "color": "green",
-                  "text": "No"
+                  "text": "Нет"
                 },
                 "1": {
                   "color": "orange",
-                  "text": "Yes"
+                  "text": "Да"
                 }
               },
               "type": "value"
@@ -254,7 +254,7 @@
           "refId": "A"
         }
       ],
-      "title": "Proxy Mode Active",
+      "title": "Прокси-режим активен",
       "type": "stat"
     },
     {
@@ -313,7 +313,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Score PSI By Segment",
+      "title": "Последний Score PSI по сегментам",
       "type": "bargauge"
     },
     {
@@ -372,7 +372,7 @@
           "refId": "A"
         }
       ],
-      "title": "Quality Incidents By Segment",
+      "title": "Инциденты качества по сегментам",
       "type": "bargauge"
     },
     {
@@ -417,7 +417,7 @@
           "refId": "A"
         }
       ],
-      "title": "Label Coverage Over Time",
+      "title": "Покрытие метками во времени",
       "type": "timeseries"
     },
     {
@@ -447,7 +447,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Proxy Quality Metrics",
+      "title": "Последние proxy-метрики качества",
       "type": "table"
     }
   ],
@@ -490,7 +490,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ML Monitoring Blind Period Proxy Signals",
+  "title": "ML-мониторинг: прокси-сигналы слепого периода",
   "uid": "ml-monitoring-proxy",
   "version": 4,
   "weekStart": ""

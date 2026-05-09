@@ -1,16 +1,15 @@
-# Architecture
+# Архитектура
 
-This document fixes the end-to-end architecture of the project as one
-dataflow: from offline training and baseline generation to online
-inference, delayed labels, monitoring, incidents, dashboards, and
-automated reactions.
+Документ фиксирует сквозную архитектуру проекта как один поток данных: от
+офлайн-обучения и построения baseline до онлайн-инференса, отложенных меток,
+мониторинга, инцидентов, дашбордов и автоматизированных реакций.
 
-## System Diagram
+## Схема системы
 
 ```mermaid
 flowchart TB
-    subgraph Offline["Offline Preparation"]
-        Dataset["Bank Marketing dataset"]
+    subgraph Offline["Офлайн-подготовка"]
+        Dataset["Набор Bank Marketing"]
         Train["app.train.train"]
         Model["artifacts/models/bank_marketing_model.joblib"]
         Baseline["artifacts/baselines/baseline_profile.json"]
@@ -19,12 +18,12 @@ flowchart TB
         Train --> Baseline
     end
 
-    subgraph Serving["Online Serving"]
-        Client["Client or simulator"]
+    subgraph Serving["Онлайн-serving"]
+        Client["Клиент или симулятор"]
         Simulator["app.simulator.generate_stream"]
         API["FastAPI /predict"]
-        RuntimePolicy["Runtime policy\nthreshold/manual review"]
-        Metrics["Prometheus metrics\napp.common.metrics"]
+        RuntimePolicy["Runtime policy\nпорог/ручная проверка"]
+        Metrics["Метрики Prometheus\napp.common.metrics"]
         Client --> API
         Simulator --> API
         Model --> API
@@ -33,7 +32,7 @@ flowchart TB
         API --> Metrics
     end
 
-    subgraph Data["Operational Data Stores"]
+    subgraph Data["Операционные хранилища"]
         InferenceLog["PostgreSQL.inference_log"]
         GroundTruth["PostgreSQL.ground_truth"]
         DriftRuns["PostgreSQL.monitoring_runs"]
@@ -45,14 +44,14 @@ flowchart TB
         Actions["PostgreSQL.monitoring_actions"]
     end
 
-    subgraph Labels["Delayed Labels"]
-        LabelManifest["Saved manifests"]
+    subgraph Labels["Отложенные метки"]
+        LabelManifest["Сохраненные manifests"]
         Backfill["app.monitoring.backfill_labels\n/labels, /labels/batch"]
         LabelManifest --> Backfill
         Backfill --> GroundTruth
     end
 
-    subgraph Monitoring["Monitoring And Control Loop"]
+    subgraph Monitoring["Контур мониторинга и управления"]
         Scheduler["app.monitoring.scheduler"]
         DriftJob["app.monitoring.drift_job\n+ drift_detectors"]
         QualityJob["app.monitoring.quality_job\n+ unlabeled_quality"]
@@ -68,12 +67,12 @@ flowchart TB
         Actions --> RuntimePolicy
     end
 
-    subgraph Observability["Observability And Operator Interfaces"]
+    subgraph Observability["Наблюдаемость и интерфейсы оператора"]
         Prometheus["Prometheus"]
         Alertmanager["Alertmanager"]
-        EmailRelay["Email relay / SMTP"]
-        Grafana["Grafana dashboards"]
-        Overview["Overview API and /overview UI"]
+        EmailRelay["Email-релей / SMTP"]
+        Grafana["Дашборды Grafana"]
+        Overview["Overview API и /overview UI"]
     end
 
     API --> InferenceLog
@@ -109,54 +108,56 @@ flowchart TB
     Incidents --> Overview
 ```
 
-## Main Flow
+## Основной поток
 
-1. `app.train.train` trains the classifier and writes the model artifact and
-   baseline profile.
-2. `FastAPI /predict` loads those artifacts, serves inference, applies the
-   current runtime policy, emits Prometheus metrics, and writes every request
-   into `inference_log`.
-3. Delayed labels arrive later through `/labels` or `/labels/batch`, usually
-   from `app.monitoring.backfill_labels`, and are stored in `ground_truth`.
-4. `app.monitoring.scheduler` periodically runs drift and quality jobs for the
-   global stream and optionally for configured segments.
-5. `app.monitoring.drift_job` reads recent inference windows and baseline
-   artifacts, applies univariate and multivariate detectors, and writes
-   `monitoring_runs` plus `drift_metrics`.
-6. `app.monitoring.quality_job` reads recent labeled or unlabeled windows,
-   computes labeled metrics, proxy metrics, and unlabeled estimates, then
-   writes `quality_runs`, `quality_metrics`, and `quality_estimates`.
-7. Monitoring results are synchronized into `monitoring_incidents`; critical
-   incidents can trigger `reaction_engine`, which creates `monitoring_actions`
-   and updates the runtime policy used by `/predict`.
-8. Prometheus scrapes the API metrics, Alertmanager routes alert notifications,
-   and Grafana combines Prometheus with PostgreSQL tables for dashboards.
+1. `app.train.train` обучает классификатор и записывает артефакт модели и
+   baseline-профиль.
+2. `FastAPI /predict` загружает эти артефакты, выполняет инференс, применяет
+   текущую runtime policy, публикует метрики Prometheus и записывает каждый
+   запрос в `inference_log`.
+3. Отложенные метки приходят позже через `/labels` или `/labels/batch`, обычно
+   из `app.monitoring.backfill_labels`, и сохраняются в `ground_truth`.
+4. `app.monitoring.scheduler` периодически запускает задачи дрейфа и качества
+   для глобального потока и, при необходимости, для настроенных сегментов.
+5. `app.monitoring.drift_job` читает последние окна инференса и baseline,
+   запускает одномерные и многомерные детекторы, затем записывает
+   `monitoring_runs` и `drift_metrics`.
+6. `app.monitoring.quality_job` читает последние окна с метками или без меток,
+   считает labeled-метрики, proxy-метрики и unlabeled-оценки, затем записывает
+   `quality_runs`, `quality_metrics` и `quality_estimates`.
+7. Результаты мониторинга синхронизируются в `monitoring_incidents`;
+   критические инциденты могут запускать `reaction_engine`, который создает
+   `monitoring_actions` и меняет runtime policy для `/predict`.
+8. Prometheus собирает API-метрики, Alertmanager маршрутизирует уведомления,
+   а Grafana объединяет Prometheus с таблицами PostgreSQL для дашбордов.
 
-## Architectural Layers
+## Архитектурные слои
 
-- Offline artifacts:
-  `artifacts/models/` and `artifacts/baselines/` define the serving and
-  monitoring reference point.
-- Serving layer:
-  `app/api/main.py` is the runtime boundary for inference, labels, monitoring
-  APIs, and overview responses.
-- Monitoring layer:
+- Офлайн-артефакты:
+  `artifacts/models/` и `artifacts/baselines/` задают референсную точку для
+  serving и мониторинга.
+- Serving-слой:
+  `app/api/main.py` является runtime-границей для инференса, меток,
+  monitoring API и overview-ответов.
+- Слой мониторинга:
   `scheduler`, `drift_job`, `quality_job`, `drift_detectors`,
-  `unlabeled_quality`, and `incidents` implement the periodic control loop.
-- Response layer:
-  `reaction_engine` turns critical monitoring state into auditable actions.
-- Observability layer:
-  Prometheus, Alertmanager, Grafana, the overview page, and the email relay
-  expose monitoring state to operators.
+  `unlabeled_quality` и `incidents` реализуют периодический контур контроля.
+- Слой реагирования:
+  `reaction_engine` превращает критическое состояние мониторинга в
+  аудируемые действия.
+- Слой наблюдаемости:
+  Prometheus, Alertmanager, Grafana, overview-страница и email-релей
+  показывают состояние мониторинга оператору.
 
-## Why The Split Matters
+## Почему разделение важно
 
-- PostgreSQL stores detailed evidence for the thesis:
-  raw inference events, delayed labels, runs, metrics, incidents, and actions.
-- Prometheus stores operator-facing gauges and counters:
-  freshness, severity, request rates, proxy signals, and segment summaries.
-- Grafana combines both:
-  time-series from Prometheus and tabular latest-state views from PostgreSQL.
-- The reaction engine closes the loop:
-  monitoring is not only descriptive but can also create auditable mitigation
-  actions that influence the live inference path.
+- PostgreSQL хранит детальные доказательства для ВКР:
+  события инференса, отложенные метки, запуски, метрики, инциденты и actions.
+- Prometheus хранит операторские counters и gauges:
+  свежесть, severity, частоту запросов, proxy-сигналы и summaries по сегментам.
+- Grafana объединяет оба источника:
+  временные ряды из Prometheus и табличные представления последнего состояния
+  из PostgreSQL.
+- Reaction engine замыкает контур:
+  мониторинг не только описывает проблему, но и создает аудируемые меры,
+  которые влияют на live-путь инференса.

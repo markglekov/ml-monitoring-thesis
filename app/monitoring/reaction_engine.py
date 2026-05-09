@@ -22,6 +22,9 @@ AUTOMATION_TITLES = {
     "Drift monitoring signal",
     "Quality degradation detected",
     "Quality risk detected from proxy signals",
+    "Сигнал мониторинга дрейфа",
+    "Обнаружено ухудшение качества",
+    "Прокси-сигналы показывают риск качества",
 }
 
 logger = get_logger(__name__)

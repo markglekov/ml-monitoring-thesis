@@ -1,160 +1,162 @@
 # ML Monitoring Thesis
 
-End-to-end ML monitoring prototype for a binary classification service. The project covers model training, online inference, delayed labels, multilevel drift and quality monitoring, alerting, incident traceability, and a small overview UI on top of the monitoring data.
+Сквозной прототип мониторинга ML-сервиса бинарной классификации. Проект
+показывает обучение модели, онлайн-инференс, отложенные метки, многоуровневый
+мониторинг дрейфа и качества, алертинг, трассировку инцидентов и компактный
+UI поверх данных мониторинга.
 
-## Research Contribution
+## Исследовательский вклад
 
-- End-to-end thesis prototype for delayed-label monitoring, not only a model
-  API: the repository includes training, serving, logging, monitoring,
-  incidents, dashboards, and mitigation actions in one traceable system.
-- Explicit blind-period monitoring protocol: proxy metrics, label coverage, and
-  unlabeled quality estimates are implemented alongside classic labeled
-  evaluation.
-- Combined monitoring evidence model: PostgreSQL stores raw events, runs,
-  metrics, incidents, and actions; Prometheus and Grafana expose both
-  time-series and operator-facing summaries.
-- Reproducible experiment pack for the defense: final scenarios, screenshots,
-  and aggregated evidence tables can be regenerated from the repository.
+- Сквозной прототип для мониторинга с отложенными метками, а не только API
+  модели: обучение, serving, логирование, мониторинг, инциденты, дашборды и
+  действия реагирования находятся в одной воспроизводимой системе.
+- Явный протокол слепого периода: прокси-метрики, покрытие метками и оценки
+  качества без меток реализованы рядом с классической оценкой по меткам.
+- Единая модель доказательств: PostgreSQL хранит сырые события, запуски,
+  метрики, инциденты и действия; Prometheus и Grafana показывают временные
+  ряды и операторские сводки.
+- Воспроизводимый пакет экспериментов для защиты: финальные сценарии,
+  скриншоты и агрегированные таблицы можно пересобрать из репозитория.
 
-## What Is Included
+## Что входит
 
-- `FastAPI` inference API with request logging to PostgreSQL
-- Offline training pipeline for the Bank Marketing dataset
-- Delayed labels ingestion and quality monitoring
-- Drift monitoring with univariate and multivariate detectors
-- Blind-period quality monitoring with proxy signals
-- Prometheus, Grafana, and Alertmanager integration
-- SMTP email relay for alert delivery
-- Monitoring incidents with recommended actions
-- Overview API and lightweight UI for the latest monitoring state
-- Unit and integration tests
+- `FastAPI` API инференса с записью запросов в PostgreSQL
+- офлайн-обучение модели на наборе Bank Marketing
+- загрузка отложенных меток и мониторинг качества
+- мониторинг дрейфа с одномерными и многомерными детекторами
+- мониторинг качества в слепом периоде по прокси-сигналам
+- интеграция Prometheus, Grafana и Alertmanager
+- SMTP-релей для доставки алертов по email
+- инциденты мониторинга с рекомендуемыми действиями
+- обзорный API и легкий UI для текущего состояния мониторинга
+- unit- и integration-тесты
 
-## Implemented Scenarios
+## Реализованные сценарии
 
-- Baseline-like drift and quality runs
-- Mild and severe distribution drift
-- Mild and severe labeled quality degradation
-- Blind-period proxy monitoring before delayed labels arrive
-- Assumption-based unlabeled quality estimation under label shift
-- Segment-localized monitoring and incidents
-- Automated reaction flow with action execution and rollback
-- Final evidence export in `artifacts/reports/final/`
+- базовые запуски дрейфа и качества
+- слабый и сильный дрейф распределения
+- слабое и сильное ухудшение качества по меткам
+- прокси-мониторинг в слепом периоде до прихода меток
+- оценка качества без меток при допущении label shift
+- мониторинг и инциденты по сегментам
+- автоматизированное реагирование с выполнением действия и rollback
+- экспорт финальных доказательств в `artifacts/reports/final/`
 
-## Tech Stack
+## Технологии
 
 - Python 3.12
-- `uv` for dependency management
+- `uv` для управления зависимостями
 - `FastAPI`, `Pydantic`, `SQLAlchemy`
 - `scikit-learn`, `pandas`, `numpy`, `scipy`
 - PostgreSQL
 - Prometheus, Grafana, Alertmanager
 - Ruff, Pyright, Pytest
 
-## Project Layout
+## Структура проекта
 
 ```text
 app/
-  api/            FastAPI app, monitoring endpoints, overview UI
-  common/         Shared config, logging, metrics
-  monitoring/     Drift job, quality job, scheduler, labels backfill client
-  notifications/  Email relay for Alertmanager webhooks
-  simulator/      Request stream generator
-  train/          Training pipeline and artifact generation
-monitoring/       Prometheus, Grafana, Alertmanager configuration
-sql/              Database schema bootstrap SQL
-tests/            Unit and integration tests
-docs/             Reproducible experiment runbooks and reports
+  api/            FastAPI-приложение, monitoring endpoints, overview UI
+  common/         общая конфигурация, логирование, метрики
+  monitoring/     задачи дрейфа/качества, scheduler, загрузка меток
+  notifications/  email-релей для webhook-ов Alertmanager
+  simulator/      генератор потока запросов
+  train/          обучение модели и генерация артефактов
+monitoring/       конфигурация Prometheus, Grafana, Alertmanager
+sql/              SQL-схема для bootstrap базы
+tests/            unit- и integration-тесты
+docs/             runbook-и и отчеты по воспроизводимым экспериментам
 ```
 
-## How This Maps To Thesis Chapters
+## Связь с главами ВКР
 
-- Chapter 1, problem statement and methods:
-  drift detectors, delayed labels, blind period, proxy monitoring,
-  unlabeled quality estimation, and reaction logic.
-- Chapter 2, system design:
-  API, storage model, scheduler, monitoring jobs, incidents, dashboards,
-  and the architecture in [`docs/architecture.md`](docs/architecture.md).
-- Chapter 3, experiments and evaluation:
-  reproducible scenarios in [`docs/experiments.md`](docs/experiments.md),
-  one-page defense flow in [`docs/defense-checklist.md`](docs/defense-checklist.md),
-  and saved final artifacts in `artifacts/reports/final/`.
+- Глава 1, постановка задачи и методы:
+  детекторы дрейфа, отложенные метки, слепой период, прокси-мониторинг,
+  оценка качества без меток и логика реагирования.
+- Глава 2, проектирование системы:
+  API, модель хранения, scheduler, задачи мониторинга, инциденты, дашборды
+  и архитектура в [`docs/architecture.md`](docs/architecture.md).
+- Глава 3, эксперименты и оценка:
+  воспроизводимые сценарии в [`docs/experiments.md`](docs/experiments.md),
+  короткий сценарий защиты в [`docs/defense-checklist.md`](docs/defense-checklist.md)
+  и финальные артефакты в `artifacts/reports/final/`.
 
-## Quick Start
+## Быстрый старт
 
-1. Copy `.env.example` to `.env` and fill in the values you need.
-2. Install dependencies:
+1. Скопируйте `.env.example` в `.env` и заполните нужные значения.
+2. Установите зависимости:
 
 ```bash
 make sync
 ```
 
-3. Train the model and generate baseline artifacts if you have not done it yet:
+3. Обучите модель и сгенерируйте baseline-артефакты, если они еще не созданы:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.train.train
 ```
 
-4. Start the stack:
+4. Запустите стек:
 
 ```bash
 make docker-up
 ```
 
-To run only the API locally outside Docker:
+Чтобы запустить только API локально, без Docker:
 
 ```bash
 make run-api
 ```
 
-If port `5432` is already busy on your machine, override the host port:
+Если порт `5432` уже занят, переопределите порт PostgreSQL на хосте:
 
 ```bash
 POSTGRES_PORT=55432 docker compose up -d --build
 ```
 
-## Useful Endpoints
+## Полезные endpoints
 
-- API docs: `http://localhost:8000/docs`
-- Health: `GET /health`
-- Metrics: `GET /metrics`
-- Overview JSON: `GET /monitoring/overview`
-- Overview UI: `GET /overview`
-- Latest drift runs: `GET /monitoring/drift/runs`
-- Latest quality runs: `GET /monitoring/quality/runs`
-- Monitoring incidents: `GET /monitoring/incidents`
+- документация API: `http://localhost:8000/docs`
+- проверка здоровья: `GET /health`
+- метрики: `GET /metrics`
+- обзор JSON: `GET /monitoring/overview`
+- обзорный UI: `GET /overview`
+- последние запуски дрейфа: `GET /monitoring/drift/runs`
+- последние запуски качества: `GET /monitoring/quality/runs`
+- инциденты мониторинга: `GET /monitoring/incidents`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 - Alertmanager: `http://localhost:9093`
 
-Grafana dashboards:
+Дашборды Grafana:
 
-- Executive overview: `http://localhost:3000/d/ml-monitoring-overview`
-- Drift analysis: `http://localhost:3000/d/ml-monitoring-drift`
-- Quality and calibration: `http://localhost:3000/d/ml-monitoring-quality`
-- Blind-period proxy signals: `http://localhost:3000/d/ml-monitoring-proxy`
-- Segments and incidents: `http://localhost:3000/d/ml-monitoring-segments`
+- общий обзор: `http://localhost:3000/d/ml-monitoring-overview`
+- анализ дрейфа: `http://localhost:3000/d/ml-monitoring-drift`
+- качество и калибровка: `http://localhost:3000/d/ml-monitoring-quality`
+- прокси-сигналы слепого периода: `http://localhost:3000/d/ml-monitoring-proxy`
+- сегменты и инциденты: `http://localhost:3000/d/ml-monitoring-segments`
 
-## Development Workflow
+## Разработка
 
-Install or update the local environment:
+Установить или обновить локальное окружение:
 
 ```bash
 make sync
 ```
 
-Run the full local quality gate:
+Запустить локальную проверку качества:
 
 ```bash
 make check
 ```
 
-Install git hooks:
+Установить git hooks:
 
 ```bash
 make hooks-install
 ```
 
-Run only selected tools:
+Запустить отдельные инструменты:
 
 ```bash
 make format
@@ -164,19 +166,19 @@ make test
 make test-integration
 ```
 
-Run the same quality gate locally that CI executes:
+Запустить тот же quality gate, что и CI:
 
 ```bash
 make ci
 ```
 
-Inspect PostgreSQL directly:
+Подключиться к PostgreSQL:
 
 ```bash
 make db-shell
 ```
 
-Useful SQL inside `psql`:
+Полезные SQL-запросы внутри `psql`:
 
 ```sql
 SELECT COUNT(*) FROM inference_log;
@@ -191,15 +193,15 @@ ORDER BY id DESC
 LIMIT 5;
 ```
 
-## Quick Demo Scenario
+## Быстрый demo-сценарий
 
-1. Start the full stack:
+1. Запустите весь стек:
 
 ```bash
 make docker-up
 ```
 
-2. Generate a baseline-like inference stream:
+2. Сгенерируйте поток инференса, похожий на baseline:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.simulator.generate_stream \
@@ -210,7 +212,7 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.simulator.generate_stream \
   --seed 42
 ```
 
-3. Run drift monitoring on the same segment:
+3. Запустите мониторинг дрейфа на этом сегменте:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.drift_job \
@@ -218,7 +220,7 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.drift_job \
   --segment-key demo_none
 ```
 
-4. Backfill delayed labels and run quality monitoring:
+4. Загрузите отложенные метки и запустите мониторинг качества:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.backfill_labels \
@@ -229,76 +231,76 @@ UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job \
   --segment-key demo_none
 ```
 
-5. Inspect the result:
+5. Проверьте результат:
 
-- Overview UI: `http://localhost:8000/overview`
-- Overview JSON: `http://localhost:8000/monitoring/overview`
+- обзорный UI: `http://localhost:8000/overview`
+- обзор JSON: `http://localhost:8000/monitoring/overview`
 - Grafana: `http://localhost:3000`
-- Executive dashboard: `http://localhost:3000/d/ml-monitoring-overview`
-- Drift dashboard: `http://localhost:3000/d/ml-monitoring-drift`
-- Quality dashboard: `http://localhost:3000/d/ml-monitoring-quality`
-- Proxy dashboard: `http://localhost:3000/d/ml-monitoring-proxy`
-- Segments dashboard: `http://localhost:3000/d/ml-monitoring-segments`
+- общий дашборд: `http://localhost:3000/d/ml-monitoring-overview`
+- дашборд дрейфа: `http://localhost:3000/d/ml-monitoring-drift`
+- дашборд качества: `http://localhost:3000/d/ml-monitoring-quality`
+- дашборд прокси-сигналов: `http://localhost:3000/d/ml-monitoring-proxy`
+- дашборд сегментов: `http://localhost:3000/d/ml-monitoring-segments`
 - Prometheus: `http://localhost:9090`
 - Alertmanager: `http://localhost:9093`
 
-## Monitoring Workflow
+## Рабочий процесс мониторинга
 
-Generate a stream of inference requests:
+Сгенерировать поток запросов:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.simulator.generate_stream --rows 300 --scenario none
 ```
 
-Backfill delayed labels through the API:
+Загрузить отложенные метки через API:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.backfill_labels --label-policy perfect
 ```
 
-Run monitoring jobs manually if needed:
+Запустить задачи мониторинга вручную:
 
 ```bash
 UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.drift_job --window-size 300
 UV_CACHE_DIR=.uv-cache uv run python -m app.monitoring.quality_job --window-size 300
 ```
 
-The scheduler service can run both jobs continuously through Docker Compose.
-Set `MONITORING_SEGMENTS=segment_a,segment_b` to let the scheduler fan out
-the same jobs across multiple monitored segments, optionally together with the
-global run controlled by `SCHEDULER_INCLUDE_GLOBAL_SEGMENT`.
+Сервис scheduler может запускать обе задачи непрерывно через Docker Compose.
+Переменная `MONITORING_SEGMENTS=segment_a,segment_b` включает запуск по
+нескольким сегментам; глобальный запуск управляется через
+`SCHEDULER_INCLUDE_GLOBAL_SEGMENT`.
 
-Grafana is provisioned with both Prometheus and PostgreSQL datasources. The
-overview and time-series panels read from Prometheus, while incident timelines,
-segment tables, and latest run details read from PostgreSQL. This split keeps
-alerting simple and also makes the demo dashboards more useful for defense.
+Grafana заранее настроена с источниками Prometheus и PostgreSQL. Обзорные
+и time-series панели читают Prometheus, а timelines инцидентов, таблицы
+сегментов и детали последних запусков читают PostgreSQL. Такое разделение
+оставляет алертинг простым и делает demo-дашборды полезными для защиты.
 
-For reproducible experiment scenarios and expected outcomes, see
+Воспроизводимые сценарии и ожидаемые результаты описаны в
 [`docs/experiments.md`](docs/experiments.md).
 
-For the end-to-end system diagram and architectural dataflow, see
+Архитектурная схема и поток данных описаны в
 [`docs/architecture.md`](docs/architecture.md).
 
-For the shortest defense script with exact commands, dashboards, SQL queries,
-incident choice, and rollback steps, see
+Краткий сценарий защиты с командами, дашбордами, SQL-запросами, выбором
+инцидента и rollback описан в
 [`docs/defense-checklist.md`](docs/defense-checklist.md).
 
-## Limitations
+## Ограничения
 
-- The prototype is centered on one binary-classification use case and one
-  dataset; it is not a benchmark across many domains.
-- Monitoring is implemented as window-based batch jobs, not as a fully
-  distributed streaming platform.
-- Automatic reactions are intentionally conservative:
-  threshold tightening and manual review are implemented, while full automated
-  retraining is out of scope.
-- Some final defense artifacts are generated locally under `artifacts/reports/`
-  and are ignored by git by design, so they should be regenerated before the
-  final presentation or submission snapshot.
+- Прототип сфокусирован на одном кейсе бинарной классификации и одном
+  наборе данных; это не benchmark по разным доменам.
+- Мониторинг реализован как оконные batch-задачи, а не как полноценная
+  распределенная streaming-платформа.
+- Автоматические реакции намеренно консервативны: реализованы ужесточение
+  порога и ручная проверка, а полное автоматическое переобучение вне рамок.
+- Часть финальных артефактов защиты создается локально в
+  `artifacts/reports/` и не хранится в Git, поэтому перед финальной
+  презентацией или snapshot-ом их нужно пересобрать.
 
-## Email Alerting
+## Email-алертинг
 
-The project ships with an SMTP relay service that receives Alertmanager webhooks and sends emails. For Gmail, use an app password and set these variables in `.env`:
+В проекте есть SMTP-релей: он принимает webhook-и Alertmanager и отправляет
+email. Для Gmail используйте пароль приложения и задайте переменные в `.env`:
 
 ```env
 SMTP_HOST=smtp.gmail.com
@@ -311,16 +313,17 @@ SMTP_USE_STARTTLS=true
 SMTP_USE_SSL=false
 ```
 
-For local testing without a real SMTP provider, start the optional Mailpit profile:
+Для локальной проверки без реального SMTP-провайдера запустите профиль Mailpit:
 
 ```bash
 make docker-up-mailpit
 ```
 
-Then open `http://localhost:8025`.
+Затем откройте `http://localhost:8025`.
 
-## Notes
+## Примечания
 
-- The Docker stack expects model and baseline artifacts to exist under `artifacts/`.
-- Integration tests require an accessible PostgreSQL instance.
-- The repository keeps generated models, processed data, and monitoring reports out of Git on purpose.
+- Docker-стек ожидает, что модель и baseline-артефакты уже лежат в `artifacts/`.
+- Integration-тестам нужен доступный PostgreSQL.
+- Сгенерированные модели, обработанные данные и отчеты мониторинга намеренно
+  не хранятся в Git.

@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
+  "description": "Auto-refresh 15s включен для защиты и demo. В production batch- или window-based мониторинге согласуйте частоту обновления с расписанием задач.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -35,15 +35,15 @@
               "options": {
                 "0": {
                   "color": "green",
-                  "text": "None"
+                  "text": "Нет"
                 },
                 "1": {
                   "color": "orange",
-                  "text": "Warning"
+                  "text": "Предупреждение"
                 },
                 "2": {
                   "color": "red",
-                  "text": "Critical"
+                  "text": "Критично"
                 }
               },
               "type": "value"
@@ -98,7 +98,7 @@
           "refId": "A"
         }
       ],
-      "title": "Overall Severity",
+      "title": "Общая severity",
       "type": "stat"
     },
     {
@@ -159,7 +159,7 @@
           "refId": "A"
         }
       ],
-      "title": "Active Incidents",
+      "title": "Активные инциденты",
       "type": "stat"
     },
     {
@@ -177,11 +177,11 @@
               "options": {
                 "0": {
                   "color": "green",
-                  "text": "No"
+                  "text": "Нет"
                 },
                 "1": {
                   "color": "red",
-                  "text": "Yes"
+                  "text": "Да"
                 }
               },
               "type": "value"
@@ -232,7 +232,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Drift Detected",
+      "title": "Последний сигнал дрейфа",
       "type": "stat"
     },
     {
@@ -293,7 +293,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Degraded Metrics",
+      "title": "Последние деградировавшие метрики",
       "type": "stat"
     },
     {
@@ -335,7 +335,7 @@
           "refId": "A"
         }
       ],
-      "title": "Predict Requests Per Second",
+      "title": "Запросы /predict в секунду",
       "type": "timeseries"
     },
     {
@@ -394,7 +394,7 @@
           "refId": "A"
         }
       ],
-      "title": "Predict P95 Latency",
+      "title": "P95 задержка /predict",
       "type": "timeseries"
     },
     {
@@ -455,7 +455,7 @@
           "refId": "A"
         }
       ],
-      "title": "Drift Freshness",
+      "title": "Свежесть дрейфа",
       "type": "stat"
     },
     {
@@ -516,7 +516,7 @@
           "refId": "A"
         }
       ],
-      "title": "Quality Freshness",
+      "title": "Свежесть качества",
       "type": "stat"
     },
     {
@@ -576,7 +576,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest ECE",
+      "title": "Последний ECE",
       "type": "stat"
     },
     {
@@ -636,7 +636,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Score PSI",
+      "title": "Последний Score PSI",
       "type": "stat"
     },
     {
@@ -666,7 +666,7 @@
           "refId": "A"
         }
       ],
-      "title": "Open Incidents",
+      "title": "Открытые инциденты",
       "type": "table"
     }
   ],
@@ -709,7 +709,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ML Monitoring Executive Overview",
+  "title": "ML-мониторинг: общий обзор",
   "uid": "ml-monitoring-overview",
   "version": 4,
   "weekStart": ""

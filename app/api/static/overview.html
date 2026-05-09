@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ML Monitoring Overview</title>
+    <title>Обзор ML-мониторинга</title>
     <style>
       :root {
         --bg: #f4efe5;
@@ -313,7 +313,7 @@
   </head>
   <body>
     <div class="shell">
-      <div id="app" class="loading">Loading overview...</div>
+      <div id="app" class="loading">Загрузка обзора...</div>
     </div>
 
     <script>
@@ -322,14 +322,14 @@
 
       function formatDate(value) {
         if (!value) {
-          return "Not available";
+          return "Нет данных";
         }
         return new Date(value).toLocaleString();
       }
 
       function formatPercent(value) {
         if (value === null || value === undefined) {
-          return "Not available";
+          return "Нет данных";
         }
         return `${(Number(value) * 100).toFixed(1)}%`;
       }
@@ -355,32 +355,32 @@
         if (!run) {
           return `
             <div class="run-box">
-              <div class="muted">No ${type} run has been recorded yet.</div>
+              <div class="muted">Запуск ${type} еще не записан.</div>
             </div>
           `;
         }
 
         const details = type === "drift"
           ? [
-              ["Status", run.status],
-              ["Started", formatDate(run.ts_started)],
-              ["Finished", formatDate(run.ts_finished)],
-              ["Window Size", run.window_size],
+              ["Статус", run.status],
+              ["Старт", formatDate(run.ts_started)],
+              ["Завершение", formatDate(run.ts_finished)],
+              ["Размер окна", run.window_size],
               ["Severity", run.summary?.severity || "none"],
-              ["Overall Drift", run.overall_drift ? "Yes" : "No"],
-              ["Drifted Features", run.drifted_features_count],
-              ["Segment", run.segment_key || "(none)"]
+              ["Дрейф найден", run.overall_drift ? "Да" : "Нет"],
+              ["Признаков с дрейфом", run.drifted_features_count],
+              ["Сегмент", run.segment_key || "(нет)"]
             ]
           : [
-              ["Status", run.status],
-              ["Started", formatDate(run.ts_started)],
-              ["Finished", formatDate(run.ts_finished)],
-              ["Window Size", run.window_size],
-              ["Mode", run.summary?.evaluation_mode || "labeled"],
+              ["Статус", run.status],
+              ["Старт", formatDate(run.ts_started)],
+              ["Завершение", formatDate(run.ts_finished)],
+              ["Размер окна", run.window_size],
+              ["Режим", run.summary?.evaluation_mode || "labeled"],
               ["Severity", run.summary?.severity || "none"],
-              ["Degraded Metrics", run.degraded_metrics_count],
-              ["Labeled Rows", run.labeled_rows],
-              ["Segment", run.segment_key || "(none)"]
+              ["Деградировавших метрик", run.degraded_metrics_count],
+              ["Строк с метками", run.labeled_rows],
+              ["Сегмент", run.segment_key || "(нет)"]
             ];
 
         return `
@@ -401,7 +401,7 @@
 
       function renderIncidents(incidents) {
         if (!incidents.length) {
-          return '<div class="muted">No active incidents. Monitoring is currently quiet.</div>';
+          return '<div class="muted">Активных инцидентов нет. Мониторинг спокоен.</div>';
         }
 
         return `
@@ -409,10 +409,10 @@
             <thead>
               <tr>
                 <th>Severity</th>
-                <th>Source</th>
-                <th>Segment</th>
-                <th>Title</th>
-                <th>Recommended Action</th>
+                <th>Источник</th>
+                <th>Сегмент</th>
+                <th>Название</th>
+                <th>Рекомендуемое действие</th>
               </tr>
             </thead>
             <tbody>
@@ -422,7 +422,7 @@
                     <tr>
                       <td><span class="pill">${incident.severity}</span></td>
                       <td>${incident.source_type}</td>
-                      <td>${incident.segment_key || "(none)"}</td>
+                      <td>${incident.segment_key || "(нет)"}</td>
                       <td>${incident.title}</td>
                       <td>${incident.recommended_action}</td>
                     </tr>
@@ -436,17 +436,17 @@
 
       function renderSegments(segments) {
         if (!segments.length) {
-          return '<div class="muted">No segment activity recorded yet.</div>';
+          return '<div class="muted">Активность по сегментам пока не записана.</div>';
         }
 
         return `
           <table>
             <thead>
               <tr>
-                <th>Segment</th>
-                <th>Inference Rows</th>
-                <th>Labeled Rows</th>
-                <th>Coverage</th>
+                <th>Сегмент</th>
+                <th>Строк инференса</th>
+                <th>Строк с метками</th>
+                <th>Покрытие</th>
               </tr>
             </thead>
             <tbody>
@@ -470,27 +470,27 @@
       function renderOverview(data) {
         const links = buildLinks();
         const attention = data.service_status === "attention";
-        const statusLabel = attention ? data.severity.toUpperCase() : "HEALTHY";
+        const statusLabel = attention ? data.severity.toUpperCase() : "НОРМА";
 
         appNode.className = "";
         appNode.innerHTML = `
           <section class="hero">
             <article class="panel hero-card">
-              <p class="eyebrow">Product Layer</p>
-              <h1>Monitoring overview for ${data.model_version}</h1>
+              <p class="eyebrow">Операторский слой</p>
+              <h1>Обзор мониторинга ${data.model_version}</h1>
               <p class="subtitle">
-                One page for model health, data freshness, drift, quality and the busiest segments. It reads from the
-                same API and PostgreSQL state that power the monitoring jobs.
+                Одна страница для здоровья модели, свежести данных, дрейфа, качества и самых активных сегментов.
+                Данные берутся из того же API и PostgreSQL-состояния, что используют задачи мониторинга.
               </p>
               <div class="links">
-                <a href="${links.docs}" target="_blank" rel="noreferrer">API Docs</a>
-                <a href="${links.metrics}" target="_blank" rel="noreferrer">Metrics</a>
+                <a href="${links.docs}" target="_blank" rel="noreferrer">Документация API</a>
+                <a href="${links.metrics}" target="_blank" rel="noreferrer">Метрики</a>
                 <a href="${links.grafana}" target="_blank" rel="noreferrer">Grafana</a>
-                <a href="${links.grafanaOverview}" target="_blank" rel="noreferrer">Overview Dashboard</a>
-                <a href="${links.grafanaDrift}" target="_blank" rel="noreferrer">Drift Dashboard</a>
-                <a href="${links.grafanaQuality}" target="_blank" rel="noreferrer">Quality Dashboard</a>
-                <a href="${links.grafanaProxy}" target="_blank" rel="noreferrer">Proxy Dashboard</a>
-                <a href="${links.grafanaSegments}" target="_blank" rel="noreferrer">Segments Dashboard</a>
+                <a href="${links.grafanaOverview}" target="_blank" rel="noreferrer">Общий дашборд</a>
+                <a href="${links.grafanaDrift}" target="_blank" rel="noreferrer">Дрейф</a>
+                <a href="${links.grafanaQuality}" target="_blank" rel="noreferrer">Качество</a>
+                <a href="${links.grafanaProxy}" target="_blank" rel="noreferrer">Прокси-сигналы</a>
+                <a href="${links.grafanaSegments}" target="_blank" rel="noreferrer">Сегменты</a>
                 <a href="${links.prometheus}" target="_blank" rel="noreferrer">Prometheus</a>
                 <a href="${links.alertmanager}" target="_blank" rel="noreferrer">Alertmanager</a>
               </div>
@@ -503,19 +503,19 @@
                 </div>
                 <div class="mini-list" style="margin-top: 18px;">
                   <div class="mini-item">
-                    <span class="label">Generated At</span>
+                    <span class="label">Сформировано</span>
                     <span class="value" style="font-size: 18px;">${formatDate(data.generated_at)}</span>
                   </div>
                   <div class="mini-item">
-                    <span class="label">Model Version</span>
+                    <span class="label">Версия модели</span>
                     <span class="value" style="font-size: 22px;">${data.model_version}</span>
                   </div>
                   <div class="mini-item">
-                    <span class="label">API Status</span>
+                    <span class="label">Статус API</span>
                     <span class="value" style="font-size: 22px;">${data.api_health.status}</span>
                   </div>
                   <div class="mini-item">
-                    <span class="label">Active Incidents</span>
+                    <span class="label">Активные инциденты</span>
                     <span class="value" style="font-size: 22px;">${data.active_incidents_count}</span>
                   </div>
                 </div>
@@ -525,80 +525,80 @@
 
           <section class="grid">
             <article class="panel card">
-              <div class="label">Total Predictions</div>
+              <div class="label">Всего предсказаний</div>
               <div class="value">${data.data_snapshot.total_predictions}</div>
-              <div class="hint">Last 24h: ${data.data_snapshot.predictions_last_24h}</div>
+              <div class="hint">За 24 часа: ${data.data_snapshot.predictions_last_24h}</div>
             </article>
             <article class="panel card">
-              <div class="label">Total Labels</div>
+              <div class="label">Всего меток</div>
               <div class="value">${data.data_snapshot.total_labels}</div>
-              <div class="hint">Last 24h: ${data.data_snapshot.labels_last_24h}</div>
+              <div class="hint">За 24 часа: ${data.data_snapshot.labels_last_24h}</div>
             </article>
             <article class="panel card">
-              <div class="label">Label Coverage</div>
+              <div class="label">Покрытие метками</div>
               <div class="value">${formatPercent(data.data_snapshot.labeled_coverage)}</div>
-              <div class="hint">Across all logged inference rows</div>
+              <div class="hint">По всем записанным строкам инференса</div>
             </article>
             <article class="panel card">
-              <div class="label">Positive Rates</div>
+              <div class="label">Доля positive</div>
               <div class="value" style="font-size: 22px;">${formatPercent(data.data_snapshot.positive_prediction_rate)}</div>
-              <div class="hint">Labels: ${formatPercent(data.data_snapshot.positive_label_rate)}</div>
+              <div class="hint">Метки: ${formatPercent(data.data_snapshot.positive_label_rate)}</div>
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Recommended Action</h2>
-                <span>Current operator guidance</span>
+                <h2>Рекомендуемое действие</h2>
+                <span>Текущая подсказка оператору</span>
               </div>
               <div class="run-box">
-                <div class="strong">${data.recommended_action || "No action required."}</div>
+                <div class="strong">${data.recommended_action || "Действие не требуется."}</div>
               </div>
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Latest Drift Run</h2>
-                <span>${data.latest_drift_run ? `Run #${data.latest_drift_run.id}` : "No runs yet"}</span>
+                <h2>Последний запуск дрейфа</h2>
+                <span>${data.latest_drift_run ? `Запуск #${data.latest_drift_run.id}` : "Запусков пока нет"}</span>
               </div>
               ${renderRun(data.latest_drift_run, "drift")}
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Latest Quality Run</h2>
-                <span>${data.latest_quality_run ? `Run #${data.latest_quality_run.id}` : "No runs yet"}</span>
+                <h2>Последний запуск качества</h2>
+                <span>${data.latest_quality_run ? `Запуск #${data.latest_quality_run.id}` : "Запусков пока нет"}</span>
               </div>
               ${renderRun(data.latest_quality_run, "quality")}
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Active Incidents</h2>
-                <span>Open monitoring signals with actions</span>
+                <h2>Активные инциденты</h2>
+                <span>Открытые сигналы мониторинга с действиями</span>
               </div>
               ${renderIncidents(data.active_incidents)}
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Top Segments</h2>
-                <span>Ordered by inference volume</span>
+                <h2>Топ сегментов</h2>
+                <span>Отсортировано по объему инференса</span>
               </div>
               ${renderSegments(data.top_segments)}
             </article>
 
             <article class="panel wide">
               <div class="section-title">
-                <h2>Freshness</h2>
-                <span>Most recent activity timestamps</span>
+                <h2>Свежесть</h2>
+                <span>Последние timestamps активности</span>
               </div>
               <div class="run-box">
                 <div class="run-line">
-                  <div class="name">Latest Inference</div>
+                  <div class="name">Последний инференс</div>
                   <div class="strong">${formatDate(data.data_snapshot.latest_inference_ts)}</div>
                 </div>
                 <div class="run-line">
-                  <div class="name">Latest Label</div>
+                  <div class="name">Последняя метка</div>
                   <div class="strong">${formatDate(data.data_snapshot.latest_label_ts)}</div>
                 </div>
               </div>
@@ -617,7 +617,7 @@
           renderOverview(data);
         } catch (error) {
           appNode.className = "error";
-          appNode.textContent = `Failed to load overview: ${error}`;
+          appNode.textContent = `Не удалось загрузить обзор: ${error}`;
         }
       }
 

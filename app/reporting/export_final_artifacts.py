@@ -870,13 +870,15 @@ def export_grafana_screenshots(
         / "ml-monitoring-segments.json"
     )
 
+    segment_incidents_panel = "Активные инциденты по сегментам и severity"
+
     shots = [
         {
             "name": "overview_full",
             "url": (
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-overview/ml-monitoring-overview"
-                f"?orgId=1&viewPanel={overview_panels['Overall Severity']}"
+                f"?orgId=1&viewPanel={overview_panels['Общая severity']}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),
@@ -888,7 +890,7 @@ def export_grafana_screenshots(
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-drift/ml-monitoring-drift"
                 f"?orgId=1&viewPanel="
-                f"{drift_panels['Latest Drifted Features By Segment']}"
+                f"{drift_panels['Последние признаки с дрейфом по сегментам']}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),
@@ -900,7 +902,7 @@ def export_grafana_screenshots(
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-quality/ml-monitoring-quality"
                 f"?orgId=1&viewPanel="
-                f"{quality_panels['Recent Missing Rate By Feature']}"
+                f"{quality_panels['Недавняя доля пропусков по признакам']}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),
@@ -912,7 +914,7 @@ def export_grafana_screenshots(
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-quality/ml-monitoring-quality"
                 f"?orgId=1&viewPanel="
-                f"{quality_panels['Recent Out-Of-Range Rate By Feature']}"
+                f"{quality_panels['Недавняя доля out-of-range по признакам']}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),
@@ -924,7 +926,7 @@ def export_grafana_screenshots(
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-proxy/ml-monitoring-proxy"
                 f"?orgId=1&viewPanel="
-                f"{proxy_panels['Latest Score PSI By Segment']}"
+                f"{proxy_panels['Последний Score PSI по сегментам']}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),
@@ -936,7 +938,7 @@ def export_grafana_screenshots(
                 f"{grafana_url.rstrip('/')}"
                 "/d/ml-monitoring-segments/ml-monitoring-segments"
                 f"?orgId=1&viewPanel="
-                f"{segment_panels['Active Incidents By Segment And Severity']}"
+                f"{segment_panels[segment_incidents_panel]}"
                 f"&var-model_version={model_version}"
                 f"&from={from_ms}&to={to_ms}&kiosk"
             ),

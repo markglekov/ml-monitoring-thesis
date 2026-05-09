@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
+  "description": "Auto-refresh 15s включен для защиты и demo. В production batch- или window-based мониторинге согласуйте частоту обновления с расписанием задач.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -63,7 +63,7 @@
           "refId": "A"
         }
       ],
-      "title": "ROC-AUC History",
+      "title": "История ROC-AUC",
       "type": "timeseries"
     },
     {
@@ -106,7 +106,7 @@
           "refId": "A"
         }
       ],
-      "title": "F1 History",
+      "title": "История F1",
       "type": "timeseries"
     },
     {
@@ -147,7 +147,7 @@
           "refId": "A"
         }
       ],
-      "title": "Calibration Error (ECE) History",
+      "title": "История ошибки калибровки (ECE)",
       "type": "timeseries"
     },
     {
@@ -188,7 +188,7 @@
           "refId": "A"
         }
       ],
-      "title": "Brier Score History",
+      "title": "История Brier Score",
       "type": "timeseries"
     },
     {
@@ -248,7 +248,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Degraded Metrics Count",
+      "title": "Последние деградировавшие метрики Count",
       "type": "stat"
     },
     {
@@ -309,7 +309,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Labeled Rows",
+      "title": "Последнее число строк с метками",
       "type": "stat"
     },
     {
@@ -370,7 +370,7 @@
           "refId": "A"
         }
       ],
-      "title": "Quality Freshness",
+      "title": "Свежесть качества",
       "type": "stat"
     },
     {
@@ -430,7 +430,7 @@
           "refId": "A"
         }
       ],
-      "title": "Open Quality Incidents",
+      "title": "Открытые инциденты качества",
       "type": "stat"
     },
     {
@@ -489,7 +489,7 @@
           "refId": "A"
         }
       ],
-      "title": "Recent Missing Rate By Feature",
+      "title": "Недавняя доля пропусков по признакам",
       "type": "bargauge"
     },
     {
@@ -548,7 +548,7 @@
           "refId": "A"
         }
       ],
-      "title": "Recent Out-Of-Range Rate By Feature",
+      "title": "Недавняя доля out-of-range по признакам",
       "type": "bargauge"
     },
     {
@@ -607,7 +607,7 @@
           "refId": "A"
         }
       ],
-      "title": "Recent Unknown Category Rate",
+      "title": "Недавняя доля неизвестных категорий",
       "type": "bargauge"
     },
     {
@@ -637,7 +637,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Labeled Quality Metrics",
+      "title": "Последние метрики качества по меткам",
       "type": "table"
     },
     {
@@ -667,7 +667,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Unlabeled Quality Estimates",
+      "title": "Последние оценки качества без меток",
       "type": "table"
     }
   ],
@@ -710,7 +710,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ML Monitoring Quality And Calibration",
+  "title": "ML-мониторинг: качество и калибровка",
   "uid": "ml-monitoring-quality",
   "version": 4,
   "weekStart": ""

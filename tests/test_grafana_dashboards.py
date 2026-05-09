@@ -28,9 +28,9 @@ def test_proxy_segment_score_psi_thresholds_match_overview() -> None:
     overview_dashboard = _load_dashboard("ml-monitoring-overview.json")
     proxy_dashboard = _load_dashboard("ml-monitoring-proxy.json")
 
-    overview_panel = _find_panel(overview_dashboard, "Latest Score PSI")
+    overview_panel = _find_panel(overview_dashboard, "Последний Score PSI")
     proxy_segment_panel = _find_panel(
-        proxy_dashboard, "Latest Score PSI By Segment"
+        proxy_dashboard, "Последний Score PSI по сегментам"
     )
 
     assert _threshold_values(overview_panel) == [None, 0.2, 0.35]
@@ -46,7 +46,7 @@ def test_proxy_dashboard_version_reflects_threshold_fix() -> None:
 def test_proxy_dashboard_includes_label_coverage_panel() -> None:
     proxy_dashboard = _load_dashboard("ml-monitoring-proxy.json")
 
-    panel = _find_panel(proxy_dashboard, "Label Coverage Over Time")
+    panel = _find_panel(proxy_dashboard, "Покрытие метками во времени")
     target = panel["targets"][0]
 
     assert panel["datasource"]["type"] == "postgres"
@@ -59,13 +59,13 @@ def test_quality_dashboard_includes_data_quality_block() -> None:
     quality_dashboard = _load_dashboard("ml-monitoring-quality.json")
 
     missing_panel = _find_panel(
-        quality_dashboard, "Recent Missing Rate By Feature"
+        quality_dashboard, "Недавняя доля пропусков по признакам"
     )
     range_panel = _find_panel(
-        quality_dashboard, "Recent Out-Of-Range Rate By Feature"
+        quality_dashboard, "Недавняя доля out-of-range по признакам"
     )
     category_panel = _find_panel(
-        quality_dashboard, "Recent Unknown Category Rate"
+        quality_dashboard, "Недавняя доля неизвестных категорий"
     )
 
     assert quality_dashboard["version"] >= 4
@@ -89,7 +89,7 @@ def test_quality_dashboard_includes_unlabeled_quality_estimates_panel() -> (
     quality_dashboard = _load_dashboard("ml-monitoring-quality.json")
 
     panel = _find_panel(
-        quality_dashboard, "Latest Unlabeled Quality Estimates"
+        quality_dashboard, "Последние оценки качества без меток"
     )
     target = panel["targets"][0]
 

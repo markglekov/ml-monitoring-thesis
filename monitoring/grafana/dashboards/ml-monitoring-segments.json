@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
+  "description": "Auto-refresh 15s включен для защиты и demo. В production batch- или window-based мониторинге согласуйте частоту обновления с расписанием задач.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -38,11 +38,11 @@
               "options": {
                 "0": {
                   "color": "green",
-                  "text": "No"
+                  "text": "Нет"
                 },
                 "1": {
                   "color": "red",
-                  "text": "Yes"
+                  "text": "Да"
                 }
               },
               "type": "value"
@@ -78,7 +78,7 @@
           "refId": "A"
         }
       ],
-      "title": "Overall Drift By Segment",
+      "title": "Общий дрейф по сегментам",
       "type": "bargauge"
     },
     {
@@ -136,7 +136,7 @@
           "refId": "A"
         }
       ],
-      "title": "Degraded Metrics By Segment",
+      "title": "Деградировавшие метрики по сегментам",
       "type": "bargauge"
     },
     {
@@ -195,7 +195,7 @@
           "refId": "A"
         }
       ],
-      "title": "Labeled Rows By Segment",
+      "title": "Строки с метками по сегментам",
       "type": "bargauge"
     },
     {
@@ -236,7 +236,7 @@
           "refId": "A"
         }
       ],
-      "title": "Active Incidents By Segment And Severity",
+      "title": "Активные инциденты By Segment And Severity",
       "type": "timeseries"
     },
     {
@@ -266,7 +266,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Segment Monitoring Snapshot",
+      "title": "Последний snapshot мониторинга сегментов",
       "type": "table"
     },
     {
@@ -296,7 +296,7 @@
           "refId": "A"
         }
       ],
-      "title": "Incident Timeline",
+      "title": "Timeline инцидентов",
       "type": "table"
     }
   ],
@@ -340,7 +340,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ML Monitoring Segments And Incidents",
+  "title": "ML-мониторинг: сегменты и инциденты",
   "uid": "ml-monitoring-segments",
   "version": 2,
   "weekStart": ""

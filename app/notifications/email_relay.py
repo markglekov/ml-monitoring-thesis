@@ -131,9 +131,10 @@ def format_datetime(value: datetime | None) -> str:
 
 
 def build_subject(payload: AlertmanagerWebhookPayload) -> str:
-    """Build a concise subject line for an alert group."""
+    """Сформировать короткую тему письма для группы алертов."""
 
-    status = payload.status.upper()
+    status_map = {"firing": "СРАБАТЫВАЕТ", "resolved": "РЕШЕН"}
+    status = status_map.get(payload.status, payload.status.upper())
     alertname = payload.commonLabels.get("alertname", "multiple")
     service = payload.commonLabels.get("service", "multiple")
     severity = payload.commonLabels.get("severity", "mixed")
@@ -144,61 +145,61 @@ def build_subject(payload: AlertmanagerWebhookPayload) -> str:
 
 
 def build_alert_block(alert: AlertmanagerAlert) -> str:
-    """Build one formatted text block for a single alert."""
+    """Сформировать текстовый блок для одного алерта."""
 
     lines = [
         f"- alertname: {alert.labels.get('alertname', 'unknown')}",
-        f"  service: {alert.labels.get('service', 'unknown')}",
+        f"  сервис: {alert.labels.get('service', 'unknown')}",
         f"  severity: {alert.labels.get('severity', 'unknown')}",
-        f"  status: {alert.status}",
-        f"  starts_at_utc: {format_datetime(alert.startsAt)}",
+        f"  статус: {alert.status}",
+        f"  старт_utc: {format_datetime(alert.startsAt)}",
     ]
     summary = alert.annotations.get("summary") or alert.annotations.get(
         "description"
     )
     if summary:
-        lines.append(f"  summary: {summary}")
+        lines.append(f"  описание: {summary}")
     if alert.generatorURL:
         lines.append(f"  generator_url: {alert.generatorURL}")
     return "\n".join(lines)
 
 
 def build_body(payload: AlertmanagerWebhookPayload) -> str:
-    """Render Alertmanager payload into a readable plain-text email body."""
+    """Преобразовать payload Alertmanager в понятное plain-text письмо."""
 
     summary = (
         payload.commonAnnotations.get("summary")
         or payload.commonAnnotations.get("description")
-        or f"{len(payload.alerts)} alert(s) in group"
+        or f"Алертов в группе: {len(payload.alerts)}"
     )
     lines = [
-        "ML Monitoring Alert",
+        "Алерт ML-мониторинга",
         "",
-        f"Status: {payload.status.upper()}",
-        f"Receiver: {payload.receiver}",
-        f"Alerts in group: {len(payload.alerts)}",
+        f"Статус: {payload.status.upper()}",
+        f"Получатель: {payload.receiver}",
+        f"Алертов в группе: {len(payload.alerts)}",
         f"Alertname: {payload.commonLabels.get('alertname', 'multiple')}",
-        f"Service: {payload.commonLabels.get('service', 'multiple')}",
+        f"Сервис: {payload.commonLabels.get('service', 'multiple')}",
         f"Severity: {payload.commonLabels.get('severity', 'mixed')}",
-        f"Summary: {summary}",
+        f"Описание: {summary}",
     ]
 
     if payload.externalURL:
         lines.append(f"Alertmanager URL: {payload.externalURL}")
 
     if payload.groupKey:
-        lines.append(f"Group key: {payload.groupKey}")
+        lines.append(f"Ключ группы: {payload.groupKey}")
 
     if payload.alerts:
-        lines.extend(["", "Alerts:"])
+        lines.extend(["", "Алерты:"])
         for alert in payload.alerts[:10]:
             lines.append(build_alert_block(alert))
             lines.append("")
 
     if payload.truncatedAlerts:
         lines.append(
-            f"{payload.truncatedAlerts} additional alert(s) were "
-            "truncated by Alertmanager."
+            f"Alertmanager обрезал дополнительные алерты: "
+            f"{payload.truncatedAlerts}."
         )
 
     return "\n".join(lines).strip()

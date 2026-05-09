@@ -272,7 +272,7 @@ def analyze_mmd_drift(
     random_state: int = 42,
     permutations: int = MMD_PERMUTATIONS,
     max_rows: int = 128,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect multivariate drift with a kernel MMD test."""
 
@@ -351,7 +351,7 @@ def analyze_score_wasserstein(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect score drift with the Wasserstein distance."""
 
@@ -407,7 +407,7 @@ def analyze_score_cusum(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect persistent score shifts with CUSUM."""
 
@@ -470,7 +470,7 @@ def analyze_score_ewma(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect smoothed score shifts with EWMA."""
 
@@ -584,7 +584,7 @@ def analyze_score_adwin(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect online score mean changes with ADWIN."""
 
@@ -644,7 +644,7 @@ def analyze_score_ddm(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect proxy score surprises with a DDM-style control chart."""
 
@@ -735,7 +735,7 @@ def analyze_score_eddm(
     reference_scores: np.ndarray,
     current_scores: np.ndarray,
     *,
-    recommended_action: str = "No action required.",
+    recommended_action: str = "Действие не требуется.",
 ) -> dict[str, Any]:
     """Detect degradation in event spacing with an EDDM-style detector."""
 

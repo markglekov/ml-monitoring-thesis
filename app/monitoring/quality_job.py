@@ -246,20 +246,20 @@ def build_quality_recommended_action(
     """Return a concise response action for one quality signal."""
 
     if severity == "none":
-        return "No action required."
+        return "Действие не требуется."
     if detector_name == "proxy":
         return (
-            "Collect delayed labels for the affected segment, inspect score "
-            "drift, and confirm the next monitoring windows."
+            "Соберите отложенные метки для затронутого сегмента, проверьте "
+            "дрейф score и подтвердите следующие окна мониторинга."
         )
     if detector_name == "calibration":
         return (
-            "Inspect probability calibration, validate the current threshold, "
-            "and prepare recalibration before retraining."
+            "Проверьте калибровку вероятностей и текущий порог, затем "
+            "подготовьте перекалибровку до переобучения."
         )
     return (
-        "Investigate recent labeled outcomes, validate the segment, and "
-        "prepare rollback or retraining if degradation persists."
+        "Исследуйте последние результаты с метками, проверьте сегмент и "
+        "подготовьте rollback или переобучение, если деградация сохраняется."
     )
 
 
@@ -917,7 +917,7 @@ def run_quality_job(
                 for item in metrics_rows
                 if item["severity"] in {"critical", "warning"}
             ),
-            "No action required.",
+            "Действие не требуется.",
         )
 
         summary = {
@@ -993,9 +993,9 @@ def run_quality_job(
             segment_key=segment_key,
             severity=overall_severity,
             title=(
-                "Quality degradation detected"
+                "Обнаружено ухудшение качества"
                 if evaluation_mode == "labeled"
-                else "Quality risk detected from proxy signals"
+                else "Прокси-сигналы показывают риск качества"
             ),
             recommended_action=recommended_action,
             summary={
@@ -1033,10 +1033,10 @@ def run_quality_job(
             model_version=settings.model_version,
             segment_key=segment_key,
             severity="critical",
-            title="Quality monitoring job failed",
+            title="Задача мониторинга качества завершилась с ошибкой",
             recommended_action=(
-                "Check scheduler and job logs, then restore quality "
-                "monitoring before making model decisions."
+                "Проверьте scheduler и логи задачи, затем восстановите "
+                "мониторинг качества до принятия решений по модели."
             ),
             summary={"error": str(exc), "run_id": run_id},
             latest_run_id=run_id,

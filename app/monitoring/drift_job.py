@@ -254,20 +254,20 @@ def build_drift_recommended_action(
 
     if severity == "critical":
         return (
-            "Review upstream data changes, inspect the affected segment, "
-            "collect fresh labels, and prepare rollback or retraining."
+            "Проверьте upstream-изменения данных, затронутый сегмент, "
+            "соберите свежие метки и подготовьте rollback или переобучение."
         )
     if severity == "warning":
         return (
-            "Inspect recent windows and confirm whether the shift persists "
-            "before changing the model or threshold."
+            "Проверьте последние окна и подтвердите, сохраняется ли сдвиг, "
+            "прежде чем менять модель или порог."
         )
     if (
         feature_name == "__multivariate__"
         and detector_name == "domain_classifier"
     ):
-        return "No action required."
-    return "No action required."
+        return "Действие не требуется."
+    return "Действие не требуется."
 
 
 def classify_univariate_drift_severity(
@@ -567,7 +567,7 @@ def analyze_numeric_feature(
             feature_name=feature_name,
             feature_type="numeric",
             detector_name="univariate",
-            recommended_action="No action required.",
+            recommended_action="Действие не требуется.",
         )
 
     ks_result = cast(
@@ -628,7 +628,7 @@ def analyze_categorical_feature(
             feature_name=feature_name,
             feature_type="categorical",
             detector_name="univariate",
-            recommended_action="No action required.",
+            recommended_action="Действие не требуется.",
         )
 
     ref_counts = ref.value_counts(dropna=False)
@@ -1069,7 +1069,7 @@ def run_drift_job(
                 for item in results
                 if item["severity"] in {"critical", "warning"}
             ),
-            "No action required.",
+            "Действие не требуется.",
         )
 
         summary = {
@@ -1172,7 +1172,7 @@ def run_drift_job(
             model_version=settings.model_version,
             segment_key=segment_key,
             severity=overall_severity,
-            title="Drift monitoring signal",
+            title="Сигнал мониторинга дрейфа",
             recommended_action=recommended_action,
             summary={
                 "run_id": run_id,
@@ -1210,10 +1210,10 @@ def run_drift_job(
             model_version=settings.model_version,
             segment_key=segment_key,
             severity="critical",
-            title="Drift monitoring job failed",
+            title="Задача мониторинга дрейфа завершилась с ошибкой",
             recommended_action=(
-                "Check scheduler and job logs, then restore drift monitoring "
-                "before relying on the model."
+                "Проверьте scheduler и логи задачи, затем восстановите "
+                "мониторинг дрейфа до использования модели."
             ),
             summary={"error": str(exc), "run_id": run_id},
             latest_run_id=run_id,

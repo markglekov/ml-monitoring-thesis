@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Auto-refresh is set to 15s for defense/demo responsiveness. In production batch or window-based monitoring, align the refresh cadence with job frequency.",
+  "description": "Auto-refresh 15s включен для защиты и demo. В production batch- или window-based мониторинге согласуйте частоту обновления с расписанием задач.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -38,11 +38,11 @@
               "options": {
                 "0": {
                   "color": "green",
-                  "text": "No"
+                  "text": "Нет"
                 },
                 "1": {
                   "color": "red",
-                  "text": "Yes"
+                  "text": "Да"
                 }
               },
               "type": "value"
@@ -78,7 +78,7 @@
           "refId": "A"
         }
       ],
-      "title": "Global Drift Signal History",
+      "title": "История глобального сигнала дрейфа",
       "type": "timeseries"
     },
     {
@@ -120,7 +120,7 @@
           "refId": "A"
         }
       ],
-      "title": "Global Drifted Features History",
+      "title": "История числа признаков с дрейфом",
       "type": "timeseries"
     },
     {
@@ -179,7 +179,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Drifted Features By Segment",
+      "title": "Последние признаки с дрейфом по сегментам",
       "type": "bargauge"
     },
     {
@@ -238,7 +238,7 @@
           "refId": "A"
         }
       ],
-      "title": "Open Drift Incidents By Segment",
+      "title": "Открытые инциденты дрейфа по сегментам",
       "type": "bargauge"
     },
     {
@@ -268,7 +268,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Drift Runs By Segment",
+      "title": "Последние запуски дрейфа по сегментам",
       "type": "table"
     },
     {
@@ -298,7 +298,7 @@
           "refId": "A"
         }
       ],
-      "title": "Latest Drift Feature Details",
+      "title": "Детали последних признаков с дрейфом",
       "type": "table"
     }
   ],
@@ -341,7 +341,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "ML Monitoring Drift Analysis",
+  "title": "ML-мониторинг: анализ дрейфа",
   "uid": "ml-monitoring-drift",
   "version": 3,
   "weekStart": ""
