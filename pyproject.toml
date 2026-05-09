@@ -21,6 +21,7 @@ dependencies = [
     "sqlalchemy",
     "ucimlrepo",
     "uvicorn",
+    "websockets",
 ]
 
 [dependency-groups]
