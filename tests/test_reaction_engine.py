@@ -56,6 +56,32 @@ def test_build_action_configs_rejects_threshold_above_cap() -> None:
         )
 
 
+def test_configured_action_policy_separates_quality_and_proxy() -> None:
+    assert (
+        reaction_engine._choose_configured_action_type(
+            {
+                "source_type": "quality",
+                "severity": "critical",
+                "summary_json": {"evaluation_mode": "labeled"},
+            }
+        )
+        == "tighten_threshold"
+    )
+    assert (
+        reaction_engine._choose_configured_action_type(
+            {
+                "source_type": "quality",
+                "severity": "critical",
+                "summary_json": {
+                    "status": "completed_proxy",
+                    "evaluation_mode": "proxy",
+                },
+            }
+        )
+        is None
+    )
+
+
 def test_maybe_execute_critical_reaction_swallows_runtime_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

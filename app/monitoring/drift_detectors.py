@@ -9,22 +9,56 @@ import pandas as pd
 from river.drift import ADWIN
 from scipy.stats import wasserstein_distance
 
-MMD_WARNING_THRESHOLD = 0.05
-MMD_CRITICAL_THRESHOLD = 0.10
-MMD_PERMUTATIONS = 31
-WASSERSTEIN_WARNING_THRESHOLD = 0.10
-WASSERSTEIN_CRITICAL_THRESHOLD = 0.20
-CUSUM_WARNING_THRESHOLD = 5.0
-CUSUM_CRITICAL_THRESHOLD = 8.0
-EWMA_WARNING_THRESHOLD = 3.0
-EWMA_CRITICAL_THRESHOLD = 5.0
-ADWIN_DELTA = 0.20
-ADWIN_WARNING_THRESHOLD = 0.10
-ADWIN_CRITICAL_THRESHOLD = 0.20
-DDM_WARNING_THRESHOLD = 0.15
-DDM_CRITICAL_THRESHOLD = 0.40
-EDDM_WARNING_THRESHOLD = 0.20
-EDDM_CRITICAL_THRESHOLD = 0.40
+from app.monitoring.monitoring_config import monitoring_config
+
+MMD_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "mmd", "warning"), 0.05
+)
+MMD_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "mmd", "critical"), 0.10
+)
+MMD_PERMUTATIONS = monitoring_config.get_int(
+    ("drift", "advanced_detectors", "mmd", "permutations"), 31
+)
+WASSERSTEIN_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "wasserstein", "warning"), 0.10
+)
+WASSERSTEIN_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "wasserstein", "critical"), 0.20
+)
+CUSUM_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "cusum", "warning"), 5.0
+)
+CUSUM_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "cusum", "critical"), 8.0
+)
+EWMA_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "ewma", "warning"), 3.0
+)
+EWMA_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "ewma", "critical"), 5.0
+)
+ADWIN_DELTA = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "adwin", "delta"), 0.20
+)
+ADWIN_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "adwin", "warning"), 0.10
+)
+ADWIN_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "adwin", "critical"), 0.20
+)
+DDM_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "ddm", "warning"), 0.15
+)
+DDM_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "ddm", "critical"), 0.40
+)
+EDDM_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "eddm", "warning"), 0.20
+)
+EDDM_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "advanced_detectors", "eddm", "critical"), 0.40
+)
 ADVANCED_DRIFT_DETECTORS: tuple[str, ...] = (
     "mmd",
     "wasserstein",

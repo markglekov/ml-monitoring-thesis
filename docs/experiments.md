@@ -1,7 +1,16 @@
 # Экспериментальные сценарии
 
 Документ фиксирует воспроизводимый набор экспериментов мониторинга для demo.
-Все команды предполагают, что Docker-стек уже запущен.
+Самый короткий путь для защиты:
+
+```bash
+make demo
+```
+
+Эта команда обучает модель, поднимает Docker Compose stack, ждет API,
+прогоняет сценарии, запускает monitoring jobs, экспортирует финальные
+артефакты и собирает summary. Ручные команды ниже предполагают, что
+Docker-стек уже запущен.
 
 Реальные результаты для ВКР нужно сохранять в `artifacts/reports/final/`.
 Каталог генерируется командой:
@@ -29,6 +38,20 @@ make final-summary
 - `artifacts/reports/final/scenario_summary.csv`
 - `artifacts/reports/final/scenario_summary.json`
 - `artifacts/reports/final/scenario_summary.md`
+
+Один зафиксированный пример результатов, пригодный для просмотра без
+локального запуска demo, сохранен в [`docs/results_example.md`](results_example.md).
+
+Настройки one-command demo:
+
+- `DEMO_TRAIN=always|missing|skip`: переобучать модель всегда, только если
+  нет артефактов, или пропустить обучение;
+- `DEMO_DOCKER_UP=0`: использовать уже запущенный stack;
+- `DEMO_RESET=1`: перед запуском удалить Docker volumes через
+  `docker compose down -v`;
+- `DEMO_SEED=42`: seed финальных сценариев;
+- `API_URL` и `GRAFANA_URL`: адреса API и Grafana, если используются
+  нестандартные порты.
 
 ## Предусловия
 

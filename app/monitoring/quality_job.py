@@ -32,6 +32,7 @@ from app.monitoring.incidents import (
     highest_severity,
     sync_monitoring_incident,
 )
+from app.monitoring.monitoring_config import monitoring_config
 from app.monitoring.reaction_engine import maybe_execute_critical_reaction
 from app.monitoring.unlabeled_quality import (
     estimate_unlabeled_quality_with_bbse,
@@ -40,7 +41,7 @@ from app.monitoring.unlabeled_quality import (
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = settings.baseline_path
 
-DEGRADATION_RULES: dict[str, dict[str, Any]] = {
+DEFAULT_DEGRADATION_RULES: dict[str, dict[str, Any]] = {
     "roc_auc": {
         "mode": "min_delta",
         "threshold": 0.02,
@@ -108,6 +109,15 @@ DEGRADATION_RULES: dict[str, dict[str, Any]] = {
         "detector_name": "proxy",
     },
 }
+DEGRADATION_RULES: dict[str, dict[str, Any]] = monitoring_config.get_mapping(
+    ("quality", "degradation_rules"), DEFAULT_DEGRADATION_RULES
+)
+QUALITY_CRITICAL_MULTIPLIER = monitoring_config.get_float(
+    ("quality", "critical_multiplier"), 2.0
+)
+PROXY_THRESHOLD_BAND = monitoring_config.get_float(
+    ("quality", "proxy_threshold_band"), 0.10
+)
 
 logger = get_logger(__name__)
 
@@ -214,7 +224,7 @@ def compute_expected_calibration_error(
 def compute_proxy_metrics(
     score_series: pd.Series,
     threshold: float,
-    threshold_band: float = 0.10,
+    threshold_band: float = PROXY_THRESHOLD_BAND,
 ) -> dict[str, float]:
     """Compute quality proxies for unlabeled windows."""
 
@@ -275,7 +285,7 @@ def classify_quality_severity(
         return "none"
     if effect_size is None or threshold is None:
         return "warning"
-    if effect_size >= threshold * 2.0:
+    if effect_size >= threshold * QUALITY_CRITICAL_MULTIPLIER:
         return "critical"
     return "warning"
 
@@ -741,14 +751,24 @@ def build_argument_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the quality-monitoring job."""
 
     parser = argparse.ArgumentParser(description="Quality monitoring job")
-    parser.add_argument("--window-size", type=int, default=300)
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=monitoring_config.get_int(("quality", "window_size"), 300),
+    )
     parser.add_argument("--segment-key", type=str, default=None)
-    parser.add_argument("--min-rows", type=int, default=50)
+    parser.add_argument(
+        "--min-rows",
+        type=int,
+        default=monitoring_config.get_int(("quality", "min_rows"), 50),
+    )
     parser.add_argument(
         "--baseline-source",
         type=str,
         choices=["test", "validation"],
-        default="test",
+        default=monitoring_config.get_str(
+            ("quality", "baseline_source"), "test"
+        ),
     )
     return parser
 

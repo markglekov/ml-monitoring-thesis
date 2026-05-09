@@ -1,11 +1,35 @@
 # Чеклист защиты
 
-Основной сценарий защиты: четыре команды, три дашборда, два SQL-запроса,
-один инцидент и один rollback.
+Основной сценарий защиты: одна команда для подготовки demo-данных, три
+дашборда, два SQL-запроса, один инцидент и один rollback.
+
+## One-command demo
+
+Запустить полный воспроизводимый demo-flow:
+
+```bash
+make demo
+```
+
+Команда последовательно обучает модель и baseline-артефакты, поднимает
+Docker Compose stack, ждет `/health`, прогоняет финальные сценарии,
+запускает drift/quality jobs, экспортирует `artifacts/reports/final/` и
+собирает `scenario_summary`.
+
+Полезные варианты:
+
+```bash
+DEMO_TRAIN=missing make demo
+DEMO_TRAIN=skip DEMO_DOCKER_UP=0 make demo
+DEMO_RESET=1 make demo
+```
+
+`DEMO_RESET=1` удаляет Docker volumes перед запуском, поэтому используйте его
+только когда нужен чистый стенд.
 
 ## Перед началом
 
-- Стек запущен.
+- Для `make demo` нужен доступ к Docker daemon.
 - `artifacts/reports/final/` доступен для записи.
 - Учетные данные Grafana: `admin/admin`.
 
@@ -15,7 +39,7 @@
 docker compose up -d --build --force-recreate
 ```
 
-## Четыре команды
+## Ручной вариант
 
 1. Сгенерировать финальный пакет экспериментов:
 
@@ -75,6 +99,18 @@ curl -X POST http://localhost:8000/monitoring/actions/rollback \
 
 Для истории слепого периода используйте `artifacts/reports/final/proxy/` и
 `artifacts/reports/final/screenshots/proxy_label_coverage.png`.
+
+Если финальные локальные артефакты еще не пересобраны, откройте
+`docs/results_example.md`: там есть зафиксированный пример таблицы сценариев,
+скриншотов Grafana и SQL-выгрузок incident/action/rollback.
+
+Для claim про actionable alerts откройте `docs/runbook.md`: он показывает,
+что warning/critical drift, quality и proxy-сигналы связаны с конкретными
+операторскими действиями.
+
+Для вопроса о постановке ML-задачи откройте `docs/model-data-card.md`: там
+зафиксированы target, признаки, дисбаланс классов, удаление `duration` и
+ограничения применимости.
 
 ## Два SQL-запроса
 

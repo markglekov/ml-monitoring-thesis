@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from typing import Any
 
 from sqlalchemy import text
@@ -9,6 +10,7 @@ from sqlalchemy.engine import Engine
 
 from app.common.config import settings
 from app.common.logging import get_logger
+from app.monitoring.monitoring_config import monitoring_config
 
 ACTION_TIGHTEN_THRESHOLD = "tighten_threshold"
 ACTION_MANUAL_REVIEW = "manual_review"
@@ -28,6 +30,39 @@ AUTOMATION_TITLES = {
 }
 
 logger = get_logger(__name__)
+
+
+def _reaction_float_env(
+    env_name: str, config_path: tuple[str, ...], fallback: float
+) -> float:
+    """Resolve reaction policy values with env override over YAML defaults."""
+
+    value = os.getenv(env_name)
+    if value is not None and value.strip():
+        return float(value)
+    return monitoring_config.get_float(config_path, fallback)
+
+
+def _reaction_bool_env(
+    env_name: str, config_path: tuple[str, ...], fallback: bool
+) -> bool:
+    """Resolve reaction booleans with env override over YAML defaults."""
+
+    value = os.getenv(env_name)
+    if value is not None and value.strip():
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return monitoring_config.get_bool(config_path, fallback)
+
+
+def _reaction_str_env(
+    env_name: str, config_path: tuple[str, ...], fallback: str
+) -> str:
+    """Resolve reaction strings with env override over YAML defaults."""
+
+    value = os.getenv(env_name)
+    if value is not None and value.strip():
+        return value.strip()
+    return monitoring_config.get_str(config_path, fallback)
 
 
 def _to_json_compatible(value: Any) -> Any:
@@ -356,30 +391,56 @@ def _choose_automatic_action_type(
 ) -> dict[str, Any] | None:
     """Choose one safe automatic mitigation for an incident."""
 
-    source_type = str(incident["source_type"])
     incident_id = int(incident["id"])
+    configured_action_type = _choose_configured_action_type(incident)
+    if configured_action_type is None:
+        return None
 
-    if source_type == "quality":
-        threshold_action = _get_active_action_for_incident(
-            engine, incident_id, ACTION_TIGHTEN_THRESHOLD
-        )
-        if threshold_action is None:
-            return {"action_type": ACTION_TIGHTEN_THRESHOLD}
-
-        manual_review_action = _get_active_action_for_incident(
-            engine, incident_id, ACTION_MANUAL_REVIEW
-        )
-        if manual_review_action is None:
-            return {"action_type": ACTION_MANUAL_REVIEW}
-
-        return manual_review_action
-
-    manual_review_action = _get_active_action_for_incident(
-        engine, incident_id, ACTION_MANUAL_REVIEW
+    existing_action = _get_active_action_for_incident(
+        engine, incident_id, configured_action_type
     )
-    if manual_review_action is not None:
-        return manual_review_action
-    return {"action_type": ACTION_MANUAL_REVIEW}
+    if existing_action is not None:
+        return existing_action
+    return {"action_type": configured_action_type}
+
+
+def _resolve_action_policy_source(incident: dict[str, Any]) -> str:
+    """Map an incident to the operator policy section in monitoring config."""
+
+    source_type = str(incident["source_type"])
+    summary = parse_json_object(incident.get("summary_json")) or {}
+    if source_type == "quality" and (
+        summary.get("evaluation_mode") == "proxy"
+        or summary.get("status") == "completed_proxy"
+    ):
+        return "proxy"
+    return source_type
+
+
+def _choose_configured_action_type(incident: dict[str, Any]) -> str | None:
+    """Resolve executable automatic action from YAML action policy."""
+
+    policy = monitoring_config.get_mapping(
+        ("reaction", "action_policy"),
+        {
+            "drift": {"critical": ACTION_MANUAL_REVIEW},
+            "quality": {"critical": ACTION_TIGHTEN_THRESHOLD},
+        },
+    )
+    source_policy = policy.get(_resolve_action_policy_source(incident), {})
+    if not isinstance(source_policy, dict):
+        return None
+
+    configured_action = str(
+        source_policy.get(str(incident["severity"]), "")
+    ).strip()
+    if configured_action in {"", "observe", "collect_labels"}:
+        return None
+    if configured_action not in ACTION_TYPES:
+        raise ValueError(
+            f"Unsupported configured action type: {configured_action}"
+        )
+    return configured_action
 
 
 def _build_action_configs(
@@ -407,11 +468,19 @@ def _build_action_configs(
         step = float(
             threshold_step
             if threshold_step is not None
-            else settings.reaction_threshold_step
+            else _reaction_float_env(
+                "REACTION_THRESHOLD_STEP",
+                ("reaction", "threshold_step"),
+                settings.reaction_threshold_step,
+            )
         )
         new_threshold = min(
             float(current_policy["threshold"]) + step,
-            float(settings.reaction_threshold_cap),
+            _reaction_float_env(
+                "REACTION_THRESHOLD_CAP",
+                ("reaction", "threshold_cap"),
+                settings.reaction_threshold_cap,
+            ),
         )
         if new_threshold <= float(current_policy["threshold"]):
             raise ValueError(
@@ -424,7 +493,11 @@ def _build_action_configs(
         target_probability = (
             float(manual_review_probability)
             if manual_review_probability is not None
-            else float(settings.reaction_manual_review_probability)
+            else _reaction_float_env(
+                "REACTION_MANUAL_REVIEW_PROBABILITY",
+                ("reaction", "manual_review_probability"),
+                settings.reaction_manual_review_probability,
+            )
         )
         bounded_probability = min(max(target_probability, 0.0), 1.0)
         new_probability = max(
@@ -811,7 +884,12 @@ def maybe_execute_critical_reaction(
 ) -> dict[str, Any] | None:
     """Run the configured automatic reaction for one open critical incident."""
 
-    if not settings.reaction_engine_enabled:
+    engine_enabled = _reaction_bool_env(
+        "REACTION_ENGINE_ENABLED",
+        ("reaction", "engine_enabled"),
+        settings.reaction_engine_enabled,
+    )
+    if not engine_enabled:
         return None
 
     incident = get_open_incident_by_key(engine, incident_key)
@@ -822,7 +900,12 @@ def maybe_execute_critical_reaction(
     if str(incident["title"]) not in AUTOMATION_TITLES:
         return None
 
-    dry_run = settings.reaction_engine_mode.lower() != "real"
+    reaction_mode = _reaction_str_env(
+        "REACTION_ENGINE_MODE",
+        ("reaction", "mode"),
+        settings.reaction_engine_mode,
+    )
+    dry_run = reaction_mode.lower() != "real"
     try:
         return execute_monitoring_action(
             engine,

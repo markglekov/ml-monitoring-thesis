@@ -10,6 +10,7 @@ from typing import Any
 from app.common.config import settings
 from app.common.logging import get_logger, setup_logging
 from app.monitoring.drift_job import run_drift_job
+from app.monitoring.monitoring_config import monitoring_config
 from app.monitoring.quality_job import run_quality_job
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,18 +54,54 @@ def build_argument_parser() -> argparse.ArgumentParser:
         description="Recurring scheduler for drift and quality monitoring jobs"
     )
     parser.add_argument("--segment-key", type=str, default=None)
-    parser.add_argument("--poll-interval-sec", type=float, default=5.0)
-    parser.add_argument("--drift-interval-sec", type=float, default=300.0)
-    parser.add_argument("--quality-interval-sec", type=float, default=300.0)
-    parser.add_argument("--drift-window-size", type=int, default=300)
-    parser.add_argument("--quality-window-size", type=int, default=300)
-    parser.add_argument("--drift-min-rows", type=int, default=50)
-    parser.add_argument("--quality-min-rows", type=int, default=50)
+    parser.add_argument(
+        "--poll-interval-sec",
+        type=float,
+        default=monitoring_config.get_float(
+            ("scheduler", "poll_interval_sec"), 5.0
+        ),
+    )
+    parser.add_argument(
+        "--drift-interval-sec",
+        type=float,
+        default=monitoring_config.get_float(
+            ("scheduler", "drift_interval_sec"), 300.0
+        ),
+    )
+    parser.add_argument(
+        "--quality-interval-sec",
+        type=float,
+        default=monitoring_config.get_float(
+            ("scheduler", "quality_interval_sec"), 300.0
+        ),
+    )
+    parser.add_argument(
+        "--drift-window-size",
+        type=int,
+        default=monitoring_config.get_int(("drift", "window_size"), 300),
+    )
+    parser.add_argument(
+        "--quality-window-size",
+        type=int,
+        default=monitoring_config.get_int(("quality", "window_size"), 300),
+    )
+    parser.add_argument(
+        "--drift-min-rows",
+        type=int,
+        default=monitoring_config.get_int(("drift", "min_rows"), 50),
+    )
+    parser.add_argument(
+        "--quality-min-rows",
+        type=int,
+        default=monitoring_config.get_int(("quality", "min_rows"), 50),
+    )
     parser.add_argument(
         "--quality-baseline-source",
         type=str,
         choices=["test", "validation"],
-        default="test",
+        default=monitoring_config.get_str(
+            ("quality", "baseline_source"), "test"
+        ),
     )
     parser.add_argument("--skip-drift", action="store_true")
     parser.add_argument("--skip-quality", action="store_true")

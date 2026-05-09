@@ -36,6 +36,7 @@ from app.monitoring.incidents import (
     highest_severity,
     sync_monitoring_incident,
 )
+from app.monitoring.monitoring_config import monitoring_config
 from app.monitoring.reaction_engine import maybe_execute_critical_reaction
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,12 +46,30 @@ MODEL_PATH = settings.model_path
 
 logger = get_logger(__name__)
 
-UNIVARIATE_PVALUE_THRESHOLD = 0.05
-PSI_WARNING_THRESHOLD = 0.20
-PSI_CRITICAL_THRESHOLD = 0.35
-DOMAIN_AUC_WARNING_THRESHOLD = 0.65
-DOMAIN_AUC_CRITICAL_THRESHOLD = 0.75
-DOMAIN_PERMUTATIONS = 31
+UNIVARIATE_PVALUE_THRESHOLD = monitoring_config.get_float(
+    ("drift", "univariate", "pvalue_warning"), 0.05
+)
+UNIVARIATE_PVALUE_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "univariate", "pvalue_critical"), 0.01
+)
+PSI_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "univariate", "psi_warning"), 0.20
+)
+PSI_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "univariate", "psi_critical"), 0.35
+)
+DOMAIN_AUC_WARNING_THRESHOLD = monitoring_config.get_float(
+    ("drift", "domain_classifier", "auc_warning"), 0.65
+)
+DOMAIN_AUC_CRITICAL_THRESHOLD = monitoring_config.get_float(
+    ("drift", "domain_classifier", "auc_critical"), 0.75
+)
+DOMAIN_PVALUE_THRESHOLD = monitoring_config.get_float(
+    ("drift", "domain_classifier", "pvalue_max"), 0.05
+)
+DOMAIN_PERMUTATIONS = monitoring_config.get_int(
+    ("drift", "domain_classifier", "permutations"), 31
+)
 
 
 def load_reference_data() -> pd.DataFrame:
@@ -279,7 +298,10 @@ def classify_univariate_drift_severity(
 
     if effect_size is not None and effect_size >= PSI_CRITICAL_THRESHOLD:
         return "critical"
-    if pvalue_adj is not None and pvalue_adj <= 0.01:
+    if (
+        pvalue_adj is not None
+        and pvalue_adj <= UNIVARIATE_PVALUE_CRITICAL_THRESHOLD
+    ):
         return "critical"
     if effect_size is not None and effect_size >= PSI_WARNING_THRESHOLD:
         return "warning"
@@ -295,9 +317,15 @@ def classify_domain_drift_severity(
 
     if pvalue is None:
         return "none"
-    if auc_value >= DOMAIN_AUC_CRITICAL_THRESHOLD and pvalue <= 0.05:
+    if (
+        auc_value >= DOMAIN_AUC_CRITICAL_THRESHOLD
+        and pvalue <= DOMAIN_PVALUE_THRESHOLD
+    ):
         return "critical"
-    if auc_value >= DOMAIN_AUC_WARNING_THRESHOLD and pvalue <= 0.05:
+    if (
+        auc_value >= DOMAIN_AUC_WARNING_THRESHOLD
+        and pvalue <= DOMAIN_PVALUE_THRESHOLD
+    ):
         return "warning"
     return "none"
 
@@ -868,9 +896,17 @@ def build_argument_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for the drift-monitoring job."""
 
     parser = argparse.ArgumentParser(description="Drift monitoring job")
-    parser.add_argument("--window-size", type=int, default=300)
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=monitoring_config.get_int(("drift", "window_size"), 300),
+    )
     parser.add_argument("--segment-key", type=str, default=None)
-    parser.add_argument("--min-rows", type=int, default=50)
+    parser.add_argument(
+        "--min-rows",
+        type=int,
+        default=monitoring_config.get_int(("drift", "min_rows"), 50),
+    )
     return parser
 
 

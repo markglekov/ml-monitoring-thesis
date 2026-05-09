@@ -14,6 +14,7 @@ dependencies = [
     "prometheus-client",
     "psycopg2-binary",
     "pydantic",
+    "pyyaml",
     "python-dotenv",
     "requests",
     "river",

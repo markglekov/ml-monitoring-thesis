@@ -71,6 +71,7 @@ class Settings:
 
     model_path: Path
     baseline_path: Path
+    monitoring_config_path: Path
     model_version: str
     monitoring_segments: tuple[str, ...]
     scheduler_include_global_segment: bool
@@ -114,6 +115,8 @@ settings = Settings(
     / _get_env("MODEL_PATH", "artifacts/models/bank_marketing_model.joblib"),
     baseline_path=ROOT
     / _get_env("BASELINE_PATH", "artifacts/baselines/baseline_profile.json"),
+    monitoring_config_path=ROOT
+    / _get_env("MONITORING_CONFIG_PATH", "monitoring/monitoring_config.yaml"),
     model_version=_get_env("MODEL_VERSION", "bank_marketing_v1"),
     monitoring_segments=_get_list_env("MONITORING_SEGMENTS", default=()),
     scheduler_include_global_segment=_get_bool_env(

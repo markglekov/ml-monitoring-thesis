@@ -142,6 +142,9 @@ flowchart TB
 - Слой мониторинга:
   `scheduler`, `drift_job`, `quality_job`, `drift_detectors`,
   `unlabeled_quality` и `incidents` реализуют периодический контур контроля.
+  Пороги, размеры окон, severity rules и action policy вынесены в
+  `monitoring/monitoring_config.yaml`; CLI/env-параметры остаются верхним
+  слоем переопределения.
 - Слой реагирования:
   `reaction_engine` превращает критическое состояние мониторинга в
   аудируемые действия.
@@ -161,3 +164,6 @@ flowchart TB
 - Reaction engine замыкает контур:
   мониторинг не только описывает проблему, но и создает аудируемые меры,
   которые влияют на live-путь инференса.
+- Runbook делает алерты actionable:
+  `docs/runbook.md` связывает warning/critical drift, quality и proxy-сигналы
+  с проверками, SQL/API/Grafana шагами и решениями по эскалации.
